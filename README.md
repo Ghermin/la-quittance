@@ -14,24 +14,9 @@ Application web installable (PWA) pour générer des quittances de loyer en PDF 
 - Envoi : bouton « Envoyer » → menu de partage Android → Gmail s'ouvre avec le PDF joint, l'objet et le message pré-remplis. L'adresse email du locataire est copiée dans le presse-papiers (le partage Android ne permet pas de pré-remplir le destinataire).
 - Hors ligne : l'app fonctionne sans réseau une fois installée.
 
-## Déploiement sur GitHub Pages
-
-1. Crée un dépôt GitHub (public ou privé, Pages fonctionne dans les deux cas avec un compte gratuit pour un dépôt public).
-2. Pousse ce dossier :
-
-   ```bash
-   git init
-   git add .
-   git commit -m "Quittances de loyer"
-   git branch -M main
-   git remote add origin git@github.com:Ghermin/la-quittance.git
-   git push -u origin main
-   ```
-
-3. Sur GitHub : Settings → Pages → Source « Deploy from a branch », branche `main`, dossier `/ (root)` → Save.
-4. Après une à deux minutes, l'app est en ligne sur `https://ghermin.github.io/la-quittance/`.
-
 ## Installation sur Android
+
+L'app est en ligne sur `https://ghermin.github.io/la-quittance/` (GitHub Pages, branche `main`).
 
 1. Ouvre l'URL dans Chrome.
 2. Menu ⋮ → « Installer l'application » (ou « Ajouter à l'écran d'accueil »). Un bouton « Installer » apparaît aussi dans l'onglet Réglages de l'app.
