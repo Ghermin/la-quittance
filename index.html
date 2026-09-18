@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#1f5f8b">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Quittances">
+    <title>Quittances de loyer</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+    <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+    <header class="app-header">
+        <h1>Quittances de loyer</h1>
+        <span class="app-header__sub" data-header-sub></span>
+    </header>
+
+    <main>
+        <section data-view="new">
+            <div class="card empty" data-empty-tenants hidden>
+                <p>Aucun locataire enregistré.</p>
+                <p class="muted">Commence par ajouter un locataire, puis renseigne tes coordonnées de bailleur et ta signature dans « Réglages ».</p>
+                <button type="button" class="btn btn-primary" data-nav-to="tenants">Ajouter un locataire</button>
+            </div>
+
+            <form class="card" data-form="new" novalidate>
+                <label>Locataire
+                    <select data-field="tenantId" required></select>
+                </label>
+                <label>Mois concerné
+                    <input type="month" data-field="month" required>
+                </label>
+                <div class="row2">
+                    <label>Période du
+                        <input type="date" data-field="periodStart" required>
+                    </label>
+                    <label>au
+                        <input type="date" data-field="periodEnd" required>
+                    </label>
+                </div>
+                <div class="row2">
+                    <label>Loyer hors charges (€)
+                        <input type="number" inputmode="decimal" step="0.01" min="0" data-field="rent" required>
+                    </label>
+                    <label>Charges (€)
+                        <input type="number" inputmode="decimal" step="0.01" min="0" data-field="charges" required>
+                    </label>
+                </div>
+                <div class="row2">
+                    <label>Date du paiement
+                        <input type="date" data-field="paymentDate" required>
+                    </label>
+                    <label>Date d'établissement
+                        <input type="date" data-field="issueDate" required>
+                    </label>
+                </div>
+                <label>Fait à
+                    <input type="text" data-field="signaturePlace" placeholder="Ville" autocomplete="off">
+                </label>
+
+                <div class="summary">
+                    <div><span class="muted">Total</span><strong data-total>0,00 €</strong></div>
+                    <div><span class="muted">Numéro</span><strong data-next-number>—</strong></div>
+                </div>
+
+                <div class="notice" data-notice-landlord hidden>
+                    Les coordonnées du bailleur sont incomplètes.
+                    <button type="button" class="link" data-nav-to="settings">Compléter</button>
+                </div>
+                <div class="notice" data-notice-signature hidden>
+                    Aucune signature enregistrée : la quittance sera générée sans signature.
+                    <button type="button" class="link" data-nav-to="settings">Ajouter une signature</button>
+                </div>
+                <div class="notice" data-notice-duplicate hidden>
+                    Une quittance existe déjà pour ce locataire sur cette période (voir l'historique).
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">Générer la quittance</button>
+            </form>
+        </section>
+
+        <section data-view="tenants" hidden>
+            <div data-tenant-list></div>
+            <button type="button" class="btn btn-primary btn-block" data-action="add-tenant">+ Ajouter un locataire</button>
+        </section>
+
+        <section data-view="history" hidden>
+            <label class="card card--compact">Filtrer par locataire
+                <select data-history-filter>
+                    <option value="">Tous les locataires</option>
+                </select>
+            </label>
+            <div data-receipt-list></div>
+        </section>
+
+        <section data-view="settings" hidden>
+            <h2>Bailleur</h2>
+            <form class="card" data-form="landlord" novalidate>
+                <div class="row2 row2--civility">
+                    <label>Civilité
+                        <select name="civility">
+                            <option value="M.">M.</option>
+                            <option value="Mme">Mme</option>
+                            <option value="">Aucune</option>
+                        </select>
+                    </label>
+                    <label>Prénom
+                        <input type="text" name="firstName" autocomplete="given-name">
+                    </label>
+                </div>
+                <label>Nom
+                    <input type="text" name="lastName" autocomplete="family-name">
+                </label>
+                <label>Adresse (une ligne par élément)
+                    <textarea name="address" rows="3" placeholder="1 rue de l&#39;Exemple&#10;00000 Villexemple"></textarea>
+                </label>
+                <label>Ville (pour « Fait à »)
+                    <input type="text" name="city" autocomplete="address-level2">
+                </label>
+                <label>Email (optionnel)
+                    <input type="email" name="email" autocomplete="email">
+                </label>
+                <p class="muted small">Enregistré automatiquement.</p>
+            </form>
+
+            <h2>Signature</h2>
+            <div class="card">
+                <div class="signature-current" data-signature-current hidden>
+                    <img alt="Signature enregistrée" data-signature-img>
+                    <span class="muted small">Signature actuellement utilisée sur les quittances.</span>
+                    <button type="button" class="btn btn-small btn-danger" data-action="signature-delete">Supprimer la signature</button>
+                </div>
+                <p class="muted small">Signe dans la zone ci-dessous avec le doigt, puis enregistre.</p>
+                <canvas class="signature-pad" data-signature-pad></canvas>
+                <div class="item-actions">
+                    <button type="button" class="btn" data-action="signature-clear">Effacer</button>
+                    <button type="button" class="btn btn-primary" data-action="signature-save">Enregistrer la signature</button>
+                    <label class="btn btn-file">Importer une image
+                        <input type="file" accept="image/*" data-signature-file hidden>
+                    </label>
+                </div>
+            </div>
+
+            <h2>Email d'envoi</h2>
+            <form class="card" data-form="email" novalidate>
+                <label>Objet
+                    <input type="text" name="subject">
+                </label>
+                <label>Message
+                    <textarea name="body" rows="7"></textarea>
+                </label>
+                <p class="muted small">Variables : {locataire} {bailleur} {periode} {debut} {fin} {adresse} {montant} {numero}</p>
+                <button type="button" class="btn" data-action="email-reset">Rétablir le modèle par défaut</button>
+            </form>
+
+            <h2>Données</h2>
+            <div class="card">
+                <p class="muted small">Toutes les données (locataires, bailleur, signature, historique, modèle d'email) sont stockées uniquement sur cet appareil, dans le navigateur. Effacer les données de Chrome pour ce site les supprime.</p>
+                <p class="muted small">La sauvegarde est un fichier JSON déposé dans les téléchargements du téléphone. Importer une sauvegarde remplace toutes les données actuelles.</p>
+                <div class="item-actions">
+                    <button type="button" class="btn btn-primary" data-action="backup-export">Exporter une sauvegarde</button>
+                    <label class="btn btn-file">Importer une sauvegarde
+                        <input type="file" accept="application/json,.json" data-backup-file hidden>
+                    </label>
+                    <button type="button" class="btn btn-danger" data-action="wipe-all">Tout effacer</button>
+                </div>
+                <p class="muted small" data-storage-info></p>
+            </div>
+
+            <h2>Application</h2>
+            <div class="card">
+                <button type="button" class="btn btn-primary btn-block" data-action="install" hidden>Installer l'application sur l'écran d'accueil</button>
+                <p class="muted small" data-install-hint>Depuis Chrome Android : menu ⋮ → « Ajouter à l'écran d'accueil » / « Installer l'application ».</p>
+                <p class="muted small">Version <span data-app-version></span></p>
+            </div>
+        </section>
+    </main>
+
+    <nav class="tabbar" aria-label="Navigation principale">
+        <button type="button" data-nav="new" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 1.5L18.5 9H13zM8 13h8v1.5H8zm0 3.5h8V18H8zM8 9.5h3V11H8z"/></svg>
+            Quittance
+        </button>
+        <button type="button" data-nav="tenants">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6m-8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6m0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5c0-2.3-4.7-3.5-7-3.5m8 0c-.3 0-.6 0-1 .1 1.2.8 2 2 2 3.4V19h6v-2.5c0-2.3-4.7-3.5-7-3.5"/></svg>
+            Locataires
+        </button>
+        <button type="button" data-nav="history">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3a9 9 0 0 0-9 9H1l3.9 3.9L9 12H6a7 7 0 1 1 7 7 7 7 0 0 1-4.9-2l-1.4 1.4A9 9 0 1 0 13 3m-1 5v5l4.3 2.5.7-1.2-3.5-2.1V8z"/></svg>
+            Historique
+        </button>
+        <button type="button" data-nav="settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.6l-2-3.5a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.6a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.5a.5.5 0 0 0 .1.6L4.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6a.5.5 0 0 0-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .2.2.4.5.4h4c.2 0 .5-.2.5-.4l.4-2.6a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 0 0-.1-.6zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7"/></svg>
+            Réglages
+        </button>
+    </nav>
+
+    <div class="modal" data-modal hidden>
+        <div class="modal__backdrop" data-action="close-modal"></div>
+        <div class="modal__card" role="dialog" aria-modal="true" data-modal-content></div>
+    </div>
+
+    <div class="toast" data-toast hidden></div>
+
+    <script src="./js/vendor/jspdf.umd.min.js"></script>
+    <script src="./js/pdf.js"></script>
+    <script src="./js/app.js"></script>
+</body>
+</html>
