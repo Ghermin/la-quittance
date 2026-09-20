@@ -1,10 +1,12 @@
-var CACHE = 'quittance-loyer-v2';
+var CACHE = 'quittance-loyer-v3';
 var ASSETS = [
     './',
     './index.html',
     './css/app.css',
-    './js/app.js',
     './js/pdf.js',
+    './js/core.js',
+    './js/native.js',
+    './js/app.js',
     './js/vendor/jspdf.umd.min.js',
     './manifest.webmanifest',
     './icons/icon-192.png',

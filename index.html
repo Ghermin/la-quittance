@@ -3,8 +3,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#1f5f8b" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#14202c" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#151c25" media="(prefers-color-scheme: dark)">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Quittances">
@@ -16,113 +16,117 @@
 </head>
 <body>
     <header class="app-header">
-        <h1>Quittances de loyer</h1>
-        <span class="app-header__sub" data-header-sub></span>
+        <div class="app-header__inner">
+            <h1>Quittances</h1>
+            <span class="app-header__sub" data-header-sub></span>
+        </div>
     </header>
 
     <main>
         <section data-view="new">
+            <div data-month-hero></div>
+
             <div class="card empty" data-empty-tenants hidden>
-                <p>Aucun locataire enregistré.</p>
-                <p class="muted">Commence par ajouter un locataire, puis renseigne tes coordonnées de bailleur et ta signature dans « Réglages ».</p>
+                <p>Bienvenue</p>
+                <p class="muted">Ajoute un premier locataire, puis renseigne tes coordonnées de bailleur et ta signature dans « Réglages ». Ensuite, chaque mois tiendra en un bouton.</p>
                 <button type="button" class="btn btn-primary" data-nav-to="tenants">Ajouter un locataire</button>
             </div>
 
-            <div class="segmented" data-new-mode hidden>
-                <button type="button" data-mode="single" aria-pressed="true">Une quittance</button>
-                <button type="button" data-mode="batch" aria-pressed="false">Tous les locataires</button>
+            <div data-new-tools hidden>
+                <h2>Autre quittance</h2>
+                <div class="segmented" data-new-mode hidden>
+                    <button type="button" data-mode="single" aria-pressed="true">Une quittance</button>
+                    <button type="button" data-mode="batch" aria-pressed="false">Plusieurs locataires</button>
+                </div>
+
+                <form class="card" data-form="new" novalidate>
+                    <label>Locataire
+                        <select data-field="tenantId" required></select>
+                    </label>
+                    <label>Mois concerné
+                        <input type="month" data-field="month" required>
+                    </label>
+                    <div class="row2">
+                        <label>Période du
+                            <input type="date" data-field="periodStart" required>
+                        </label>
+                        <label>au
+                            <input type="date" data-field="periodEnd" required>
+                        </label>
+                    </div>
+                    <div class="row2">
+                        <label>Loyer hors charges (€)
+                            <input type="number" inputmode="decimal" step="0.01" min="0" data-field="rent" required>
+                        </label>
+                        <label>Charges (€)
+                            <input type="number" inputmode="decimal" step="0.01" min="0" data-field="charges" required>
+                        </label>
+                    </div>
+                    <div class="row2">
+                        <label>Date du paiement
+                            <input type="date" data-field="paymentDate" required>
+                        </label>
+                        <label>Date d'établissement
+                            <input type="date" data-field="issueDate" required>
+                        </label>
+                    </div>
+                    <label>Fait à
+                        <input type="text" data-field="signaturePlace" placeholder="Ville" autocomplete="off">
+                    </label>
+
+                    <div class="summary">
+                        <div><span>Total</span><strong data-total>0,00 €</strong></div>
+                        <div><span>Numéro</span><strong data-next-number>—</strong></div>
+                    </div>
+
+                    <div class="notice" data-notice-landlord hidden>
+                        Les coordonnées du bailleur sont incomplètes.
+                        <button type="button" class="link" data-nav-to="settings">Compléter</button>
+                    </div>
+                    <div class="notice" data-notice-signature hidden>
+                        Aucune signature enregistrée : la quittance sera générée sans signature.
+                        <button type="button" class="link" data-nav-to="settings">Ajouter une signature</button>
+                    </div>
+                    <div class="notice" data-notice-duplicate hidden>
+                        Une quittance existe déjà pour ce locataire sur cette période (voir l'historique).
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-block">Générer la quittance</button>
+                </form>
+
+                <form class="card" data-form="batch" novalidate hidden>
+                    <label>Mois concerné
+                        <input type="month" data-bfield="month" required>
+                    </label>
+                    <div class="row2">
+                        <label>Date d'établissement
+                            <input type="date" data-bfield="issueDate" required>
+                        </label>
+                        <label>Fait à
+                            <input type="text" data-bfield="signaturePlace" placeholder="Ville" autocomplete="off">
+                        </label>
+                    </div>
+
+                    <p class="muted small">Coche les locataires concernés et ajuste la date de paiement si besoin. Les montants sont ceux enregistrés sur chaque locataire.</p>
+                    <div data-batch-list></div>
+
+                    <div class="summary">
+                        <div><span>Quittances</span><strong data-batch-count>0</strong></div>
+                        <div><span>Total</span><strong data-batch-total>0,00 €</strong></div>
+                    </div>
+
+                    <div class="notice" data-bnotice-landlord hidden>
+                        Les coordonnées du bailleur sont incomplètes.
+                        <button type="button" class="link" data-nav-to="settings">Compléter</button>
+                    </div>
+                    <div class="notice" data-bnotice-signature hidden>
+                        Aucune signature enregistrée : les quittances seront générées sans signature.
+                        <button type="button" class="link" data-nav-to="settings">Ajouter une signature</button>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-block" data-batch-submit>Générer les quittances</button>
+                </form>
             </div>
-
-            <form class="card" data-form="new" novalidate>
-                <label>Locataire
-                    <select data-field="tenantId" required></select>
-                </label>
-                <label>Mois concerné
-                    <input type="month" data-field="month" required>
-                </label>
-                <div class="row2">
-                    <label>Période du
-                        <input type="date" data-field="periodStart" required>
-                    </label>
-                    <label>au
-                        <input type="date" data-field="periodEnd" required>
-                    </label>
-                </div>
-                <div class="row2">
-                    <label>Loyer hors charges (€)
-                        <input type="number" inputmode="decimal" step="0.01" min="0" data-field="rent" required>
-                    </label>
-                    <label>Charges (€)
-                        <input type="number" inputmode="decimal" step="0.01" min="0" data-field="charges" required>
-                    </label>
-                </div>
-                <div class="row2">
-                    <label>Date du paiement
-                        <input type="date" data-field="paymentDate" required>
-                    </label>
-                    <label>Date d'établissement
-                        <input type="date" data-field="issueDate" required>
-                    </label>
-                </div>
-                <label>Fait à
-                    <input type="text" data-field="signaturePlace" placeholder="Ville" autocomplete="off">
-                </label>
-
-                <div class="summary">
-                    <div><span class="muted">Total</span><strong data-total>0,00 €</strong></div>
-                    <div><span class="muted">Numéro</span><strong data-next-number>—</strong></div>
-                </div>
-
-                <div class="notice" data-notice-landlord hidden>
-                    Les coordonnées du bailleur sont incomplètes.
-                    <button type="button" class="link" data-nav-to="settings">Compléter</button>
-                </div>
-                <div class="notice" data-notice-signature hidden>
-                    Aucune signature enregistrée : la quittance sera générée sans signature.
-                    <button type="button" class="link" data-nav-to="settings">Ajouter une signature</button>
-                </div>
-                <div class="notice" data-notice-duplicate hidden>
-                    Une quittance existe déjà pour ce locataire sur cette période (voir l'historique).
-                </div>
-
-                <button type="submit" class="btn btn-primary btn-block">Générer la quittance</button>
-            </form>
-
-            <form class="card" data-form="batch" novalidate hidden>
-                <label>Mois concerné
-                    <input type="month" data-bfield="month" required>
-                </label>
-                <div class="row2">
-                    <label>Date du paiement
-                        <input type="date" data-bfield="paymentDate" required>
-                    </label>
-                    <label>Date d'établissement
-                        <input type="date" data-bfield="issueDate" required>
-                    </label>
-                </div>
-                <label>Fait à
-                    <input type="text" data-bfield="signaturePlace" placeholder="Ville" autocomplete="off">
-                </label>
-
-                <p class="muted small">Coche les locataires concernés. Les montants sont ceux enregistrés sur chaque locataire ; pour un montant différent, passe par « Une quittance ».</p>
-                <div class="batch-list" data-batch-list></div>
-
-                <div class="summary">
-                    <div><span class="muted">Quittances</span><strong data-batch-count>0</strong></div>
-                    <div><span class="muted">Total</span><strong data-batch-total>0,00 €</strong></div>
-                </div>
-
-                <div class="notice" data-bnotice-landlord hidden>
-                    Les coordonnées du bailleur sont incomplètes.
-                    <button type="button" class="link" data-nav-to="settings">Compléter</button>
-                </div>
-                <div class="notice" data-bnotice-signature hidden>
-                    Aucune signature enregistrée : les quittances seront générées sans signature.
-                    <button type="button" class="link" data-nav-to="settings">Ajouter une signature</button>
-                </div>
-
-                <button type="submit" class="btn btn-primary btn-block" data-batch-submit>Générer les quittances</button>
-            </form>
         </section>
 
         <section data-view="tenants" hidden>
@@ -188,6 +192,25 @@
                 </div>
             </div>
 
+            <div data-reminder-section hidden>
+                <h2>Rappel mensuel</h2>
+                <div class="card">
+                    <label class="switch-row">Me rappeler chaque mois
+                        <input type="checkbox" class="switch" data-reminder-enabled>
+                    </label>
+                    <div class="row2">
+                        <label>Jour du mois
+                            <input type="number" min="1" max="31" inputmode="numeric" data-reminder-day>
+                        </label>
+                        <label>Heure
+                            <input type="number" min="0" max="23" inputmode="numeric" data-reminder-hour>
+                        </label>
+                    </div>
+                    <p class="muted small" data-reminder-status></p>
+                    <button type="button" class="btn btn-small" data-action="notif-settings" hidden>Autoriser les notifications</button>
+                </div>
+            </div>
+
             <h2>Email d'envoi</h2>
             <form class="card" data-form="email" novalidate>
                 <label>Objet
@@ -202,7 +225,8 @@
 
             <h2>Données</h2>
             <div class="card">
-                <p class="muted small">Toutes les données (locataires, bailleur, signature, historique, modèle d'email) sont stockées uniquement sur cet appareil, dans le navigateur. Effacer les données de Chrome pour ce site les supprime.</p>
+                <p class="muted small" data-data-hint>Toutes les données (locataires, bailleur, signature, historique, modèle d'email) sont stockées uniquement sur cet appareil. Effacer les données de Chrome pour ce site les supprime.</p>
+                <p class="muted small" data-backup-status hidden></p>
                 <p class="muted small">La sauvegarde est un fichier JSON déposé dans les téléchargements du téléphone. Importer une sauvegarde remplace toutes les données actuelles.</p>
                 <div class="item-actions">
                     <button type="button" class="btn btn-primary" data-action="backup-export">Exporter une sauvegarde</button>
@@ -258,6 +282,8 @@
 
     <script src="./js/vendor/jspdf.umd.min.js"></script>
     <script src="./js/pdf.js"></script>
+    <script src="./js/core.js"></script>
+    <script src="./js/native.js"></script>
     <script src="./js/app.js"></script>
 </body>
 </html>

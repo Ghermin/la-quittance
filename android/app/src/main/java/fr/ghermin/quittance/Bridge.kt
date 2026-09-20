@@ -1,17 +1,20 @@
 package fr.ghermin.quittance
 
-import android.app.Activity
 import android.content.ClipData
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import androidx.core.content.FileProvider
+import org.json.JSONObject
 import java.io.File
 
-class Bridge(private val activity: Activity) {
+class Bridge(private val activity: MainActivity) {
 
     @JavascriptInterface
     fun version(): String =
@@ -89,6 +92,74 @@ class Bridge(private val activity: Activity) {
         }
     }
 
+    @JavascriptInterface
+    fun writeBackup(json: String, monthDone: String): String {
+        Reminder.setMonthDone(activity, monthDone)
+        val resolver = activity.contentResolver
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        return try {
+            val uri = findBackup() ?: run {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, BACKUP_NAME)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, BACKUP_DIR)
+                }
+                resolver.insert(collection, values)
+            } ?: return "error"
+            val out = resolver.openOutputStream(uri, "wt") ?: return "error"
+            out.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+            "ok"
+        } catch (e: Exception) {
+            "error"
+        }
+    }
+
+    private fun findBackup(): Uri? {
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?"
+        activity.contentResolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), selection, arrayOf(BACKUP_DIR, BACKUP_NAME), null)?.use { c ->
+            if (c.moveToFirst()) return ContentUris.withAppendedId(collection, c.getLong(0))
+        }
+        return null
+    }
+
+    @JavascriptInterface
+    fun setReminder(enabled: Boolean, day: Int, hour: Int): String {
+        Reminder.save(activity, enabled, day, hour)
+        if (!enabled) {
+            Reminder.cancel(activity)
+            return "disabled"
+        }
+        if (!Reminder.hasPermission(activity)) {
+            activity.runOnUiThread { activity.requestNotificationPermission() }
+            return "permission"
+        }
+        Reminder.schedule(activity)
+        return "scheduled"
+    }
+
+    @JavascriptInterface
+    fun reminderStatus(): String =
+        JSONObject()
+            .put("enabled", Reminder.isEnabled(activity))
+            .put("day", Reminder.day(activity))
+            .put("hour", Reminder.hour(activity))
+            .put("next", Reminder.next(activity))
+            .put("permission", Reminder.hasPermission(activity))
+            .toString()
+
+    @JavascriptInterface
+    fun openNotificationSettings() {
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            activity.startActivity(intent)
+        } catch (e: Exception) {
+            // réglages indisponibles sur cet appareil
+        }
+    }
+
     private fun decode(base64: String): ByteArray? =
         try {
             Base64.decode(base64, Base64.DEFAULT)
@@ -113,5 +184,7 @@ class Bridge(private val activity: Activity) {
 
     companion object {
         const val GMAIL = "com.google.android.gm"
+        const val BACKUP_NAME = "quittances-sauvegarde.json"
+        val BACKUP_DIR: String = Environment.DIRECTORY_DOCUMENTS + "/Quittances/"
     }
 }

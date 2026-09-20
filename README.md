@@ -4,7 +4,8 @@ Application web installable (PWA) pour générer des quittances de loyer en PDF 
 
 ## Fonctions
 
-- Locataires : civilité, nom, prénom, email, adresse du bien, loyer hors charges, charges.
+- Écran « Ce mois » : à l'ouverture, l'app résume le mois courant (quittances à faire, montant, locataires) et propose un seul bouton « Générer et envoyer ». Quand tout est envoyé, elle le dit et n'a plus rien à demander. « Vérifier avant » ouvre le détail pour ajuster.
+- Locataires : civilité, nom, prénom, email, adresse du bien, loyer hors charges, charges, jour de paiement habituel (pré-remplit la date de paiement de chaque mois, borné à la fin du mois).
 - Sauvegarde locale : export / import d'un fichier JSON, effacement complet.
 - Bailleur : identité, adresse, ville de signature.
 - Signature électronique dessinée au doigt ou importée depuis une image (fond blanc rendu transparent).
@@ -16,7 +17,7 @@ Application web installable (PWA) pour générer des quittances de loyer en PDF 
 - Historique des quittances : réouverture, renvoi, suppression, détection des doublons.
 - Envoi : bouton « Envoyer » → menu de partage Android → Gmail s'ouvre avec le PDF joint, l'objet et le message pré-remplis. L'adresse email du locataire est copiée dans le presse-papiers (le partage Android ne permet pas de pré-remplir le destinataire) ; le toast qui suit propose « Recopier » si besoin.
 - Email prêt à envoyer (.eml) : télécharge un brouillon complet — destinataire, objet, message, PDF joint, marqué `X-Unsent` — à ouvrir dans un client mail d'ordinateur (Outlook, Thunderbird…). C'est aussi le mode de repli quand le partage n'est pas disponible.
-- Application Android (APK) : même interface, mais « Envoyer » ouvre Gmail avec le destinataire, l'objet, le message **et** le PDF déjà en place ; il ne reste qu'à appuyer sur Envoyer dans Gmail. Voir « Application Android ».
+- Application Android (APK) : même interface, mais « Envoyer » ouvre Gmail avec le destinataire, l'objet, le message **et** le PDF déjà en place ; il ne reste qu'à appuyer sur Envoyer dans Gmail. Elle ajoute un rappel mensuel (notification le 10 à 9 h par défaut, réglable, silencieux si le mois est déjà terminé) et une sauvegarde automatique dans `Documents/Quittances/`. Voir « Application Android ».
 - Mode sombre automatique, selon le réglage du téléphone (PWA comme application Android).
 - Hors ligne : l'app fonctionne sans réseau une fois installée.
 
@@ -66,7 +67,10 @@ Mise à jour : télécharger le nouvel APK et l'ouvrir. Tant que la même clé d
 
 - « Envoyer » ouvre Gmail (ou le sélecteur d'applications si Gmail est absent) avec tout pré-rempli, puis marque la quittance envoyée.
 - « PDF » ouvre le fichier dans le lecteur PDF du téléphone ; « Télécharger », « .eml », « Tout en un seul PDF » et la sauvegarde JSON vont dans le dossier Téléchargements.
+- Rappel mensuel : Réglages → « Rappel mensuel ». Activé par défaut le 10 à 9 h (Android demande l'autorisation des notifications au premier lancement). La notification n'est pas envoyée si toutes les quittances du mois sont déjà envoyées. L'alarme est reprogrammée après un redémarrage ou une mise à jour de l'app.
+- Sauvegarde automatique : à chaque modification, l'app réécrit `Documents/Quittances/quittances-sauvegarde.json`. Ce fichier s'importe avec « Importer une sauvegarde », y compris après une réinstallation.
 - Le bouton Retour ferme la fenêtre ouverte, puis revient à l'onglet Quittance, puis quitte.
+- Aucune permission Internet : l'app ne parle qu'à Gmail et au stockage du téléphone.
 
 ### Construire l'APK
 
@@ -80,7 +84,7 @@ cd android
 .\gradlew.bat assembleRelease    # APK signé si android\signing.properties est présent
 ```
 
-`android/signing.properties` (ignoré par git) contient `QUITTANCE_KEYSTORE`, `QUITTANCE_KEYSTORE_PASSWORD`, `QUITTANCE_KEY_ALIAS`, `QUITTANCE_KEY_PASSWORD`. Le keystore de release doit être conservé précieusement : sans lui, impossible de publier une mise à jour installable par-dessus l'existant. Les icônes se régénèrent avec `powershell -ExecutionPolicy Bypass -File tools/make-android-icons.ps1`.
+Le build release est minifié (R8, réduction des ressources) : l'APK pèse environ 1 Mo. `android/signing.properties` (ignoré par git) contient `QUITTANCE_KEYSTORE`, `QUITTANCE_KEYSTORE_PASSWORD`, `QUITTANCE_KEY_ALIAS`, `QUITTANCE_KEY_PASSWORD`. Le keystore de release doit être conservé précieusement : sans lui, impossible de publier une mise à jour installable par-dessus l'existant. Les icônes se régénèrent avec `powershell -ExecutionPolicy Bypass -File tools/make-android-icons.ps1`.
 
 ### Publication automatique (optionnelle)
 
@@ -93,7 +97,13 @@ git push origin v1.1.0
 
 ## Développement
 
-- Génération d'un PDF d'exemple et vérifications unitaires (nombres en lettres, formats de dates) :
+- Tests unitaires (logique métier de `js/core.js` et `js/pdf.js` : numérotation, doublons, dates de paiement, état du mois, email, message MIME, sauvegarde, validation) :
+
+  ```bash
+  node tools/test.js
+  ```
+
+- Génération d'un PDF d'exemple :
 
   ```bash
   node tools/sample-pdf.js
@@ -112,15 +122,17 @@ git push origin v1.1.0
 ## Structure
 
 ```
-index.html               Interface (4 onglets : Quittance (une / en lot), Locataires, Historique, Réglages)
-css/app.css              Styles mobile-first
-js/app.js                Logique : stockage local, formulaires, lot + file d'envoi, signature, partage, .eml
+index.html               Interface (4 onglets : Quittance (ce mois / une / plusieurs), Locataires, Historique, Réglages)
+css/app.css              Styles mobile-first, thèmes clair et sombre
+js/app.js                Interface : vues, formulaires, file d'envoi, signature, partage, réglages
+js/core.js               Logique pure (sans DOM) : état, numérotation, dates, email, message MIME, validation
+js/native.js             Pont vers l'application Android (Gmail, fichiers, sauvegarde, rappel)
 js/pdf.js                Construction du PDF, montant en lettres, dates en français
 js/vendor/jspdf.umd.min.js  jsPDF 2.5.2
 manifest.webmanifest     Manifest PWA
 sw.js                    Service worker (cache hors ligne)
 icons/                   Icônes PWA
-tools/                   Scripts de génération (icônes PWA et Android, PDF d'exemple)
+tools/                   Tests unitaires, scripts de génération (icônes PWA et Android, PDF d'exemple)
 android/                 Application Android (WebView + pont natif Gmail), projet Gradle
 dist/la-quittance.apk    APK Android signé, servi par GitHub Pages
 .github/workflows/       Construction et publication de l'APK (optionnel)

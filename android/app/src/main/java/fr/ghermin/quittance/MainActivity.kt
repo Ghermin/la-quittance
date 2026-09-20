@@ -1,9 +1,11 @@
 package fr.ghermin.quittance
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -29,11 +31,23 @@ class MainActivity : AppCompatActivity() {
         pendingFileChooser = null
     }
 
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) Reminder.schedule(this)
+        webView.evaluateJavascript("window.QuittanceApp && window.QuittanceApp.onReminderResult($granted)", null)
+    }
+
+    fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         webView = WebView(this)
         setContentView(webView)
+
+        Reminder.ensureChannel(this)
+        if (Reminder.isEnabled(this) && Reminder.hasPermission(this)) Reminder.schedule(this)
 
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/", WebViewAssetLoader.AssetsPathHandler(this))
