@@ -3,7 +3,8 @@
 
     var Q = window.QuittancePdf;
     var jsPDF = window.jspdf && window.jspdf.jsPDF;
-    var APP_VERSION = '1.0.0';
+    var native = window.AndroidBridge || null;
+    var APP_VERSION = '1.1.0';
     var STORAGE_KEY = 'quittance-loyer.v1';
     var DEFAULT_EMAIL = {
         subject: 'Quittance de loyer - {periode} - {adresse}',
@@ -101,14 +102,26 @@
     }
 
     var toastTimer;
-    function toast(msg) {
+    var toastAction = null;
+    function toast(msg, action) {
         var t = $('[data-toast]');
         if (!t) return;
-        t.textContent = msg;
+        $('[data-toast-text]').textContent = msg;
+        var btn = $('[data-toast-action]');
+        toastAction = action || null;
+        btn.hidden = !action;
+        if (action) btn.textContent = action.label;
         t.hidden = false;
         clearTimeout(toastTimer);
-        toastTimer = setTimeout(function () { t.hidden = true; }, 3500);
+        toastTimer = setTimeout(function () { t.hidden = true; }, action ? 8000 : 3500);
     }
+
+    $('[data-toast-action]').addEventListener('click', function () {
+        if (toastAction) toastAction.onClick();
+    });
+
+    var queue = { ids: null, title: '' };
+    var resultId = null;
 
     function openModal(html) {
         $('[data-modal-content]').innerHTML = html;
@@ -117,6 +130,8 @@
     }
 
     function closeModal() {
+        queue.ids = null;
+        resultId = null;
         $('[data-modal]').hidden = true;
         $('[data-modal-content]').innerHTML = '';
         document.body.style.overflow = '';
@@ -202,18 +217,41 @@
         field('charges').value = t.charges;
     }
 
+    var batchForm = $('[data-form="batch"]');
+    var newMode = 'single';
+    var batchSelection = { month: null, checked: {} };
+
+    function bfield(name) {
+        return batchForm.querySelector('[data-bfield="' + name + '"]');
+    }
+
+    function setNewMode(mode) {
+        newMode = mode;
+        renderNew();
+    }
+
     function initNewForm() {
         var today = Q.todayISO();
         field('month').value = today.slice(0, 7);
         applyMonth();
         field('paymentDate').value = today;
         field('issueDate').value = today;
+        bfield('month').value = today.slice(0, 7);
+        bfield('paymentDate').value = today;
+        bfield('issueDate').value = today;
     }
 
     function renderNew() {
         var hasTenants = state.tenants.length > 0;
+        if (state.tenants.length < 2) newMode = 'single';
         $('[data-empty-tenants]').hidden = hasTenants;
-        newForm.hidden = !hasTenants;
+        $('[data-new-mode]').hidden = state.tenants.length < 2;
+        $$('[data-mode]').forEach(function (b) {
+            b.setAttribute('aria-pressed', b.getAttribute('data-mode') === newMode ? 'true' : 'false');
+        });
+        newForm.hidden = !hasTenants || newMode !== 'single';
+        batchForm.hidden = !hasTenants || newMode !== 'batch';
+        if (newMode === 'batch') renderBatch();
         var select = field('tenantId');
         var prev = select.value;
         select.innerHTML = state.tenants.map(function (t) {
@@ -284,45 +322,222 @@
         if (!currentSignature() && !window.confirm('Aucune signature enregistrée. Générer la quittance sans signature ?')) return;
         if (findDuplicate(tenant.id, periodStart) && !window.confirm('Une quittance existe déjà pour ce locataire sur cette période. En générer une nouvelle quand même ?')) return;
 
-        var receipt = {
-            id: uid(),
-            number: nextNumber(periodStart),
-            createdAt: new Date().toISOString(),
-            tenantId: tenant.id,
-            tenant: pick(tenant, ['civility', 'firstName', 'lastName', 'email', 'propertyAddress']),
-            landlord: pick(state.landlord, ['civility', 'firstName', 'lastName', 'address', 'city']),
+        var receipt = createReceipt(tenant, {
             periodStart: periodStart,
             periodEnd: periodEnd,
             paymentDate: field('paymentDate').value,
             issueDate: field('issueDate').value,
-            signaturePlace: field('signaturePlace').value.trim() || state.landlord.city.trim(),
-            rent: round2(rent),
-            charges: round2(charges),
-            signatureId: currentSignature() ? state.currentSignatureId : null
-        };
-        state.receipts.push(receipt);
+            signaturePlace: field('signaturePlace').value.trim(),
+            rent: rent,
+            charges: charges
+        });
         save();
         updateNewSummary();
         openResult(receipt);
     });
 
-    function receiptActions(receipt, primaryLabel) {
-        return '<button type="button" class="btn btn-primary" data-action="share" data-id="' + esc(receipt.id) + '">' + primaryLabel + '</button>'
-            + '<button type="button" class="btn" data-action="open" data-id="' + esc(receipt.id) + '">Ouvrir le PDF</button>'
-            + '<button type="button" class="btn" data-action="download" data-id="' + esc(receipt.id) + '">Télécharger le PDF</button>';
+    function createReceipt(tenant, opts) {
+        var receipt = {
+            id: uid(),
+            number: nextNumber(opts.periodStart),
+            createdAt: new Date().toISOString(),
+            sentAt: null,
+            tenantId: tenant.id,
+            tenant: pick(tenant, ['civility', 'firstName', 'lastName', 'email', 'propertyAddress']),
+            landlord: pick(state.landlord, ['civility', 'firstName', 'lastName', 'address', 'city']),
+            periodStart: opts.periodStart,
+            periodEnd: opts.periodEnd,
+            paymentDate: opts.paymentDate,
+            issueDate: opts.issueDate,
+            signaturePlace: opts.signaturePlace || state.landlord.city.trim(),
+            rent: round2(opts.rent),
+            charges: round2(opts.charges),
+            signatureId: currentSignature() ? state.currentSignatureId : null
+        };
+        state.receipts.push(receipt);
+        return receipt;
     }
 
+    function renderBatch() {
+        var month = bfield('month').value;
+        var bounds = Q.monthBounds(month);
+        if (batchSelection.month !== month) {
+            batchSelection.month = month;
+            batchSelection.checked = {};
+        }
+        state.tenants.forEach(function (t) {
+            if (!(t.id in batchSelection.checked)) batchSelection.checked[t.id] = !(bounds && findDuplicate(t.id, bounds.start));
+        });
+        if (!bfield('signaturePlace').value) bfield('signaturePlace').value = state.landlord.city || '';
+        $('[data-batch-list]').innerHTML = state.tenants.map(function (t) {
+            var dup = bounds && findDuplicate(t.id, bounds.start);
+            return '<label class="batch-row">'
+                + '<input type="checkbox" data-batch-tenant="' + esc(t.id) + '"' + (batchSelection.checked[t.id] ? ' checked' : '') + '>'
+                + '<span class="batch-row__main"><strong>' + esc(Q.fullName(t)) + '</strong>'
+                + '<span class="muted small">' + esc(firstLine(t.propertyAddress)) + ' · loyer ' + esc(Q.formatEuro(t.rent)) + ' + charges ' + esc(Q.formatEuro(t.charges)) + '</span>'
+                + (dup ? '<span class="badge badge--warn">Déjà générée (n° ' + esc(dup.number) + ')</span>' : '')
+                + '</span>'
+                + '<span class="list-item__amount">' + esc(Q.formatEuro(t.rent + t.charges)) + '</span>'
+                + '</label>';
+        }).join('');
+        updateBatchSummary();
+    }
+
+    function selectedBatchTenants() {
+        return state.tenants.filter(function (t) { return batchSelection.checked[t.id]; });
+    }
+
+    function updateBatchSummary() {
+        var selected = selectedBatchTenants();
+        var total = selected.reduce(function (s, t) { return s + t.rent + t.charges; }, 0);
+        $('[data-batch-count]').textContent = String(selected.length);
+        $('[data-batch-total]').textContent = Q.formatEuro(total);
+        $('[data-bnotice-landlord]').hidden = landlordComplete();
+        $('[data-bnotice-signature]').hidden = !!currentSignature();
+        $('[data-batch-submit]').textContent = selected.length > 1 ? 'Générer les ' + selected.length + ' quittances' : 'Générer la quittance';
+    }
+
+    batchForm.addEventListener('change', function (e) {
+        var cb = e.target.closest('[data-batch-tenant]');
+        if (cb) {
+            batchSelection.checked[cb.getAttribute('data-batch-tenant')] = cb.checked;
+            updateBatchSummary();
+            return;
+        }
+        if (e.target.getAttribute('data-bfield') === 'month') renderBatch();
+    });
+
+    batchForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!jsPDF) {
+            toast('Librairie PDF non chargée : recharge la page');
+            return;
+        }
+        if (!landlordComplete()) {
+            toast('Complète d\'abord les coordonnées du bailleur');
+            showView('settings');
+            return;
+        }
+        var bounds = Q.monthBounds(bfield('month').value);
+        if (!bounds) {
+            toast('Mois invalide');
+            return;
+        }
+        var paymentDate = bfield('paymentDate').value;
+        var issueDate = bfield('issueDate').value;
+        if (!paymentDate || !issueDate) {
+            toast('Renseigne la date de paiement et la date d\'établissement');
+            return;
+        }
+        var selected = selectedBatchTenants();
+        if (!selected.length) {
+            toast('Coche au moins un locataire');
+            return;
+        }
+        var invalid = selected.find(function (t) { return !(t.rent >= 0) || !(t.charges >= 0) || t.rent + t.charges <= 0; });
+        if (invalid) {
+            toast('Montants invalides pour ' + Q.fullName(invalid));
+            return;
+        }
+        var dups = selected.filter(function (t) { return findDuplicate(t.id, bounds.start); });
+        if (dups.length && !window.confirm(dups.length + ' locataire(s) ont déjà une quittance sur cette période. En générer une nouvelle quand même ?')) return;
+        if (!currentSignature() && !window.confirm('Aucune signature enregistrée. Générer les quittances sans signature ?')) return;
+
+        var place = bfield('signaturePlace').value.trim();
+        var ids = selected.map(function (t) {
+            return createReceipt(t, {
+                periodStart: bounds.start,
+                periodEnd: bounds.end,
+                paymentDate: paymentDate,
+                issueDate: issueDate,
+                signaturePlace: place,
+                rent: t.rent,
+                charges: t.charges
+            }).id;
+        });
+        save();
+        batchSelection.month = null;
+        renderBatch();
+        updateNewSummary();
+        openQueue(ids, 'Quittances de ' + Q.monthLabel(bounds.start));
+    });
+
     function openResult(receipt) {
+        resultId = receipt.id;
         openModal(
             '<span class="badge">Quittance n° ' + esc(receipt.number) + '</span>'
             + '<h3>' + esc(Q.fullName(receipt.tenant)) + '</h3>'
             + '<p class="muted">' + esc(Q.periodLabel(receipt.periodStart, receipt.periodEnd)) + ' · ' + esc(firstLine(receipt.tenant.propertyAddress)) + '</p>'
             + '<div class="result-total">' + esc(Q.formatEuro(Q.total(receipt))) + '</div>'
-            + '<p class="muted small">« Envoyer » ouvre le menu de partage Android : choisis Gmail, le PDF est déjà joint et l\'adresse du locataire est copiée dans le presse-papiers'
-            + (receipt.tenant.email ? ' (' + esc(receipt.tenant.email) + ')' : ' (aucun email renseigné)') + '.</p>'
-            + '<div class="result-actions">' + receiptActions(receipt, 'Envoyer la quittance')
+            + '<div class="status-line">' + sentStatus(receipt) + '</div>'
+            + '<p class="muted small">' + sendHint(receipt) + '</p>'
+            + '<div class="result-actions">'
+            + '<button type="button" class="btn btn-primary" data-action="share" data-id="' + esc(receipt.id) + '">Envoyer la quittance</button>'
+            + '<button type="button" class="btn" data-action="open" data-id="' + esc(receipt.id) + '">Ouvrir le PDF</button>'
+            + '<button type="button" class="btn" data-action="download" data-id="' + esc(receipt.id) + '">Télécharger le PDF</button>'
+            + '<button type="button" class="btn" data-action="eml" data-id="' + esc(receipt.id) + '">Email prêt à envoyer (.eml)</button>'
             + '<button type="button" class="btn" data-action="close-modal">Fermer</button></div>'
         );
+    }
+
+    function openQueue(ids, title) {
+        queue.ids = ids;
+        queue.title = title;
+        renderQueue();
+    }
+
+    function queueReceipts() {
+        return (queue.ids || []).map(receiptById).filter(Boolean);
+    }
+
+    function renderQueue() {
+        var receipts = queueReceipts();
+        if (!receipts.length) {
+            closeModal();
+            return;
+        }
+        var pending = receipts.filter(function (r) { return !r.sentAt; });
+        var total = receipts.reduce(function (s, r) { return s + Q.total(r); }, 0);
+        openModal(
+            '<span class="badge">' + receipts.length + ' quittance(s) · ' + esc(Q.formatEuro(total)) + '</span>'
+            + '<h3>' + esc(queue.title) + '</h3>'
+            + '<p class="muted small">' + queueHint() + '</p>'
+            + '<div class="queue">' + receipts.map(queueRow).join('') + '</div>'
+            + '<div class="result-actions">'
+            + (pending.length
+                ? '<button type="button" class="btn btn-primary" data-action="queue-next">Envoyer la suivante · ' + pending.length + ' restante(s)</button>'
+                : '<p class="muted small">Toutes les quittances sont envoyées.</p>')
+            + '<button type="button" class="btn" data-action="queue-merged">Tout en un seul PDF (' + receipts.length + ' page(s))</button>'
+            + '<button type="button" class="btn" data-action="close-modal">Fermer</button>'
+            + '</div>'
+        );
+    }
+
+    function sendHint(receipt) {
+        var who = receipt.tenant.email ? ' (' + esc(receipt.tenant.email) + ')' : ' (aucun email renseigné)';
+        if (native) {
+            return '« Envoyer » ouvre Gmail avec le destinataire' + who + ', l\'objet, le message et le PDF déjà en place : il ne reste qu\'à appuyer sur Envoyer dans Gmail. La quittance est alors marquée envoyée.';
+        }
+        return '« Envoyer » ouvre le menu de partage Android : choisis Gmail, le PDF est déjà joint et l\'adresse du locataire est copiée dans le presse-papiers' + who + '. La quittance est ensuite marquée envoyée.'
+            + ' Sur ordinateur, « Email prêt à envoyer » télécharge un brouillon .eml complet (destinataire, objet, message, PDF joint).';
+    }
+
+    function queueHint() {
+        if (native) return 'Chaque « Envoyer » ouvre Gmail prêt à partir : destinataire, objet, message et PDF déjà en place. Appuie sur Envoyer dans Gmail, puis reviens ici pour la suivante.';
+        return 'Le partage Android n\'envoie qu\'un mail à la fois : à chaque « Envoyer », Gmail s\'ouvre avec le PDF joint et l\'adresse du locataire est copiée, colle-la dans « À ». La quittance est ensuite marquée envoyée.';
+    }
+
+    function queueRow(r) {
+        return '<div class="queue-row' + (r.sentAt ? ' queue-row--done' : '') + '">'
+            + '<div class="queue-row__main"><strong>' + esc(Q.fullName(r.tenant)) + '</strong>'
+            + '<span class="muted small">N° ' + esc(r.number) + ' · ' + esc(r.tenant.email || 'aucun email') + '</span>'
+            + (r.sentAt ? '' : '<button type="button" class="link small" data-action="mark-sent" data-id="' + esc(r.id) + '">marquer envoyée</button>')
+            + '</div>'
+            + (r.sentAt
+                ? '<span class="badge badge--ok">Envoyée</span>'
+                : '<button type="button" class="btn btn-small btn-primary" data-action="share" data-id="' + esc(r.id) + '">Envoyer</button>')
+            + '<button type="button" class="btn btn-small" data-action="open" data-id="' + esc(r.id) + '">PDF</button>'
+            + '</div>';
     }
 
     function renderTenants() {
@@ -412,7 +627,25 @@
         toast('Locataire supprimé');
     }
 
+    function unsentReceipts() {
+        return state.receipts.filter(function (r) { return r.sentAt === null; });
+    }
+
+    function sentStatus(r) {
+        if (r.sentAt) {
+            return '<span class="badge badge--ok">Envoyée le ' + esc(Q.formatDateShort(r.sentAt.slice(0, 10))) + '</span>'
+                + '<button type="button" class="link" data-action="mark-unsent" data-id="' + esc(r.id) + '">marquer non envoyée</button>';
+        }
+        return (r.sentAt === null ? '<span class="badge badge--warn">Non envoyée</span>' : '')
+            + '<button type="button" class="link" data-action="mark-sent" data-id="' + esc(r.id) + '">marquer envoyée</button>';
+    }
+
     function renderHistory() {
+        var pending = unsentReceipts();
+        $('[data-history-queue]').innerHTML = pending.length
+            ? '<button type="button" class="btn btn-primary btn-block history-queue" data-action="history-queue">Envoyer les ' + pending.length + ' quittance(s) non envoyée(s)</button>'
+            : '';
+
         var filter = $('[data-history-filter]');
         var prev = filter.value;
         var seen = {};
@@ -439,10 +672,12 @@
                 + '<div class="item-meta">' + esc(Q.periodLabel(r.periodStart, r.periodEnd)) + '\n' + esc(firstLine(r.tenant.propertyAddress))
                 + '\nPayée le ' + esc(Q.formatDateShort(r.paymentDate)) + ' · établie le ' + esc(Q.formatDateShort(r.issueDate)) + '</div></div>'
                 + '<div class="list-item__amount">' + esc(Q.formatEuro(Q.total(r))) + '</div></div>'
+                + '<div class="status-line">' + sentStatus(r) + '</div>'
                 + '<div class="item-actions">'
                 + '<button type="button" class="btn btn-small btn-primary" data-action="share" data-id="' + esc(r.id) + '">Envoyer</button>'
                 + '<button type="button" class="btn btn-small" data-action="open" data-id="' + esc(r.id) + '">PDF</button>'
                 + '<button type="button" class="btn btn-small" data-action="download" data-id="' + esc(r.id) + '">Télécharger</button>'
+                + '<button type="button" class="btn btn-small" data-action="eml" data-id="' + esc(r.id) + '">Email (.eml)</button>'
                 + '<button type="button" class="btn btn-small btn-danger" data-action="delete-receipt" data-id="' + esc(r.id) + '">Supprimer</button>'
                 + '</div></div>';
         }).join('');
@@ -473,7 +708,21 @@
         setupPad();
         $('[data-app-version]').textContent = APP_VERSION;
         updateStorageInfo();
+        renderAndroidCard();
         if (window.matchMedia('(display-mode: standalone)').matches) $('[data-install-hint]').hidden = true;
+    }
+
+    function renderAndroidCard() {
+        var isAndroid = /Android/i.test(navigator.userAgent);
+        $('[data-android-card]').hidden = !(native || isAndroid);
+        $('[data-android-link]').hidden = !!native;
+        if (native) {
+            $('[data-android-text]').textContent = 'Application Android ' + native.version() + ' : « Envoyer » ouvre Gmail avec le destinataire, l\'objet, le message et le PDF déjà en place.';
+            $('[data-install-hint]').hidden = true;
+            $('[data-action="install"]').hidden = true;
+        } else if (isAndroid) {
+            $('[data-android-text]').textContent = 'Avec l\'application Android, « Envoyer » ouvre Gmail avec le destinataire, l\'objet, le message et le PDF déjà en place : plus rien à coller. Après le téléchargement, ouvre le fichier et autorise l\'installation depuis Chrome (une seule fois). Les données ne passent pas toutes seules d\'une version à l\'autre : exporte une sauvegarde ici, puis importe-la dans l\'application.';
+        }
     }
 
     $('[data-form="landlord"]').addEventListener('input', function (e) {
@@ -783,7 +1032,93 @@
         var data = receiptData(r);
         var doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
         Q.buildReceipt(doc, data);
-        return { blob: doc.output('blob'), name: Q.fileName(data) };
+        return { doc: doc, blob: doc.output('blob'), name: Q.fileName(data) };
+    }
+
+    function makeMergedPdf(receipts) {
+        if (!receipts.length) return null;
+        var doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+        receipts.forEach(function (r, i) {
+            if (i) doc.addPage();
+            Q.buildReceipt(doc, receiptData(r));
+        });
+        var months = {};
+        receipts.forEach(function (r) { months[r.periodStart.slice(0, 7)] = true; });
+        var keys = Object.keys(months).sort();
+        var label = keys.length === 1 ? keys[0] : keys[0] + '-a-' + keys[keys.length - 1];
+        return { blob: doc.output('blob'), name: 'quittances-loyer-' + label + '.pdf' };
+    }
+
+    function b64utf8(str) {
+        var bytes = new TextEncoder().encode(str);
+        var bin = '';
+        for (var i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin);
+    }
+
+    function wrap76(b64) {
+        return b64.replace(/.{76}/g, '$&\r\n');
+    }
+
+    function mimeHeader(text) {
+        return /^[\x20-\x7e]*$/.test(text) ? text : '=?UTF-8?B?' + b64utf8(text) + '?=';
+    }
+
+    function mailbox(person) {
+        if (!person || !person.email) return '';
+        var name = Q.fullName(person);
+        return name ? mimeHeader(name) + ' <' + person.email + '>' : person.email;
+    }
+
+    function makeEml(r) {
+        var pdf = makePdf(r);
+        var mail = renderEmail(r);
+        var boundary = '----=_quittance_' + uid();
+        var out = ['X-Unsent: 1'];
+        var from = mailbox(state.landlord);
+        var to = mailbox(r.tenant);
+        if (from) out.push('From: ' + from);
+        if (to) out.push('To: ' + to);
+        out.push(
+            'Subject: ' + mimeHeader(mail.subject),
+            'Date: ' + new Date().toUTCString(),
+            'MIME-Version: 1.0',
+            'Content-Type: multipart/mixed; boundary="' + boundary + '"',
+            '',
+            '--' + boundary,
+            'Content-Type: text/plain; charset=utf-8',
+            'Content-Transfer-Encoding: base64',
+            '',
+            wrap76(b64utf8(mail.body)),
+            '--' + boundary,
+            'Content-Type: application/pdf; name="' + pdf.name + '"',
+            'Content-Disposition: attachment; filename="' + pdf.name + '"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            wrap76(pdf.doc.output('datauristring').split(',')[1]),
+            '--' + boundary + '--',
+            ''
+        );
+        return { blob: new Blob([out.join('\r\n')], { type: 'message/rfc822' }), name: pdf.name.replace(/\.pdf$/, '.eml') };
+    }
+
+    function downloadEml(r) {
+        var eml = makeEml(r);
+        downloadBlob(eml.blob, eml.name);
+        toast('Email .eml téléchargé : ouvre-le dans ton client mail, destinataire, objet, message et PDF sont déjà remplis');
+    }
+
+    function markSent(r, sent, via) {
+        r.sentAt = sent ? new Date().toISOString() : null;
+        r.sentVia = sent ? (via || 'manual') : null;
+        save();
+        refreshAfterSend();
+    }
+
+    function refreshAfterSend() {
+        if (queue.ids) renderQueue();
+        else if (resultId && receiptById(resultId)) openResult(receiptById(resultId));
+        if (currentView === 'history') renderHistory();
     }
 
     function renderEmail(r) {
@@ -807,7 +1142,23 @@
         return { subject: fill(state.email.subject), body: fill(state.email.body) };
     }
 
+    function blobToBase64(blob) {
+        return new Promise(function (resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
+            reader.onerror = function () { reject(reader.error); };
+            reader.readAsDataURL(blob);
+        });
+    }
+
     function downloadBlob(blob, name) {
+        if (native) {
+            blobToBase64(blob).then(function (b64) {
+                var res = native.saveFile(name, blob.type || 'application/octet-stream', b64);
+                toast(res === 'ok' ? 'Enregistré dans Téléchargements : ' + name : 'Enregistrement impossible');
+            });
+            return;
+        }
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
         a.href = url;
@@ -822,6 +1173,15 @@
 
     function openPdf(r) {
         var pdf = makePdf(r);
+        if (native) {
+            blobToBase64(pdf.blob).then(function (b64) {
+                if (native.openFile(pdf.name, 'application/pdf', b64) !== 'ok') {
+                    downloadBlob(pdf.blob, pdf.name);
+                    toast('Aucune application pour ouvrir les PDF : fichier enregistré dans Téléchargements');
+                }
+            });
+            return;
+        }
         var url = URL.createObjectURL(pdf.blob);
         var win = window.open(url, '_blank');
         if (!win) downloadBlob(pdf.blob, pdf.name);
@@ -833,15 +1193,22 @@
         navigator.clipboard.writeText(text).catch(noop);
     }
 
-    function mailtoUrl(r, mail) {
-        return 'mailto:' + encodeURIComponent(r.tenant.email || '')
-            + '?subject=' + encodeURIComponent(mail.subject)
-            + '&body=' + encodeURIComponent(mail.body);
-    }
-
     function shareReceipt(r) {
         var pdf = makePdf(r);
         var mail = renderEmail(r);
+        if (native) {
+            blobToBase64(pdf.blob).then(function (b64) {
+                var res = native.sendEmail(r.tenant.email || '', mail.subject, mail.body, pdf.name, b64);
+                if (res === 'gmail' || res === 'chooser') {
+                    markSent(r, true, 'android');
+                    toast(res === 'gmail' ? 'Gmail ouvert : vérifie et appuie sur Envoyer' : 'Choisis ton application mail : tout est déjà rempli');
+                    return;
+                }
+                downloadBlob(pdf.blob, pdf.name);
+                toast('Aucune application mail : PDF enregistré dans Téléchargements');
+            });
+            return;
+        }
         var file = null;
         try {
             file = new File([pdf.blob], pdf.name, { type: 'application/pdf' });
@@ -851,7 +1218,15 @@
         if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
             copyText(r.tenant.email);
             navigator.share({ files: [file], title: mail.subject, text: mail.body }).then(function () {
-                toast(r.tenant.email ? 'Envoyé. Email du locataire copié : ' + r.tenant.email : 'Quittance partagée');
+                markSent(r, true, 'share');
+                if (r.tenant.email) {
+                    toast('Marquée envoyée · adresse copiée : ' + r.tenant.email, {
+                        label: 'Recopier',
+                        onClick: function () { copyText(r.tenant.email); }
+                    });
+                } else {
+                    toast('Quittance partagée et marquée envoyée (aucun email renseigné)');
+                }
             }).catch(function (err) {
                 if (err && err.name === 'AbortError') return;
                 downloadBlob(pdf.blob, pdf.name);
@@ -859,9 +1234,9 @@
             });
             return;
         }
-        downloadBlob(pdf.blob, pdf.name);
-        toast('Partage non disponible ici : PDF téléchargé, joins-le au mail qui s\'ouvre');
-        setTimeout(function () { window.location.href = mailtoUrl(r, mail); }, 700);
+        var eml = makeEml(r);
+        downloadBlob(eml.blob, eml.name);
+        toast('Partage indisponible ici : email .eml téléchargé, ouvre-le dans ton client mail (destinataire, objet, message et PDF déjà remplis)');
     }
 
     var installEvent = null;
@@ -894,6 +1269,11 @@
             showView(nav.getAttribute('data-nav') || nav.getAttribute('data-nav-to'));
             return;
         }
+        var mode = e.target.closest('[data-mode]');
+        if (mode) {
+            setNewMode(mode.getAttribute('data-mode'));
+            return;
+        }
         var btn = e.target.closest('[data-action]');
         if (!btn) return;
         var action = btn.getAttribute('data-action');
@@ -908,6 +1288,23 @@
             case 'share': if (receipt) shareReceipt(receipt); break;
             case 'open': if (receipt) openPdf(receipt); break;
             case 'download': if (receipt) { var pdf = makePdf(receipt); downloadBlob(pdf.blob, pdf.name); } break;
+            case 'eml': if (receipt) downloadEml(receipt); break;
+            case 'mark-sent': if (receipt) markSent(receipt, true); break;
+            case 'mark-unsent': if (receipt) markSent(receipt, false); break;
+            case 'queue-next': {
+                var next = queueReceipts().find(function (r) { return !r.sentAt; });
+                if (next) shareReceipt(next);
+                break;
+            }
+            case 'queue-merged': {
+                var merged = makeMergedPdf(queueReceipts());
+                if (merged) {
+                    downloadBlob(merged.blob, merged.name);
+                    toast('PDF groupé téléchargé');
+                }
+                break;
+            }
+            case 'history-queue': openQueue(unsentReceipts().map(function (r) { return r.id; }), 'Quittances à envoyer'); break;
             case 'signature-clear': clearPad(); break;
             case 'signature-save': saveDrawnSignature(); break;
             case 'signature-delete': deleteSignature(); break;
@@ -935,9 +1332,23 @@
         if (e.key === 'Escape' && !$('[data-modal]').hidden) closeModal();
     });
 
-    if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    if (!native && 'serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
         navigator.serviceWorker.register('./sw.js').catch(noop);
     }
+
+    window.QuittanceApp = {
+        back: function () {
+            if (!$('[data-modal]').hidden) {
+                closeModal();
+                return true;
+            }
+            if (currentView !== 'new') {
+                showView('new');
+                return true;
+            }
+            return false;
+        }
+    };
 
     initNewForm();
     renderHeader();

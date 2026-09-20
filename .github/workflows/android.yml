@@ -1,0 +1,68 @@
+name: Android APK
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.QUITTANCE_KEYSTORE_BASE64 }}
+      QUITTANCE_KEYSTORE_PASSWORD: ${{ secrets.QUITTANCE_KEYSTORE_PASSWORD }}
+      QUITTANCE_KEY_ALIAS: ${{ secrets.QUITTANCE_KEY_ALIAS }}
+      QUITTANCE_KEY_PASSWORD: ${{ secrets.QUITTANCE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Vérifier le keystore
+        if: startsWith(github.ref, 'refs/tags/v') && env.KEYSTORE_B64 == ''
+        run: |
+          echo "Secret QUITTANCE_KEYSTORE_BASE64 manquant : impossible de signer une release." >&2
+          exit 1
+
+      - name: Décoder le keystore
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "QUITTANCE_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Version
+        id: v
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then TAG="0.0.0-$(git rev-parse --short HEAD)"; fi
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
+          echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease -PversionName="${{ steps.v.outputs.name }}" -PversionCode="${{ steps.v.outputs.code }}"
+          cp app/build/outputs/apk/release/app-release.apk ../la-quittance.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: la-quittance-apk
+          path: la-quittance.apk
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: la-quittance.apk
+          generate_release_notes: true

@@ -3,7 +3,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#1f5f8b">
+    <meta name="theme-color" content="#1f5f8b" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#14202c" media="(prefers-color-scheme: dark)">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Quittances">
@@ -25,6 +26,11 @@
                 <p>Aucun locataire enregistré.</p>
                 <p class="muted">Commence par ajouter un locataire, puis renseigne tes coordonnées de bailleur et ta signature dans « Réglages ».</p>
                 <button type="button" class="btn btn-primary" data-nav-to="tenants">Ajouter un locataire</button>
+            </div>
+
+            <div class="segmented" data-new-mode hidden>
+                <button type="button" data-mode="single" aria-pressed="true">Une quittance</button>
+                <button type="button" data-mode="batch" aria-pressed="false">Tous les locataires</button>
             </div>
 
             <form class="card" data-form="new" novalidate>
@@ -81,6 +87,42 @@
 
                 <button type="submit" class="btn btn-primary btn-block">Générer la quittance</button>
             </form>
+
+            <form class="card" data-form="batch" novalidate hidden>
+                <label>Mois concerné
+                    <input type="month" data-bfield="month" required>
+                </label>
+                <div class="row2">
+                    <label>Date du paiement
+                        <input type="date" data-bfield="paymentDate" required>
+                    </label>
+                    <label>Date d'établissement
+                        <input type="date" data-bfield="issueDate" required>
+                    </label>
+                </div>
+                <label>Fait à
+                    <input type="text" data-bfield="signaturePlace" placeholder="Ville" autocomplete="off">
+                </label>
+
+                <p class="muted small">Coche les locataires concernés. Les montants sont ceux enregistrés sur chaque locataire ; pour un montant différent, passe par « Une quittance ».</p>
+                <div class="batch-list" data-batch-list></div>
+
+                <div class="summary">
+                    <div><span class="muted">Quittances</span><strong data-batch-count>0</strong></div>
+                    <div><span class="muted">Total</span><strong data-batch-total>0,00 €</strong></div>
+                </div>
+
+                <div class="notice" data-bnotice-landlord hidden>
+                    Les coordonnées du bailleur sont incomplètes.
+                    <button type="button" class="link" data-nav-to="settings">Compléter</button>
+                </div>
+                <div class="notice" data-bnotice-signature hidden>
+                    Aucune signature enregistrée : les quittances seront générées sans signature.
+                    <button type="button" class="link" data-nav-to="settings">Ajouter une signature</button>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block" data-batch-submit>Générer les quittances</button>
+            </form>
         </section>
 
         <section data-view="tenants" hidden>
@@ -89,6 +131,7 @@
         </section>
 
         <section data-view="history" hidden>
+            <div data-history-queue></div>
             <label class="card card--compact">Filtrer par locataire
                 <select data-history-filter>
                     <option value="">Tous les locataires</option>
@@ -175,6 +218,10 @@
             <div class="card">
                 <button type="button" class="btn btn-primary btn-block" data-action="install" hidden>Installer l'application sur l'écran d'accueil</button>
                 <p class="muted small" data-install-hint>Depuis Chrome Android : menu ⋮ → « Ajouter à l'écran d'accueil » / « Installer l'application ».</p>
+                <div class="android-card" data-android-card hidden>
+                    <p class="muted small" data-android-text></p>
+                    <a class="btn btn-primary btn-block" data-android-link href="./dist/la-quittance.apk" download="la-quittance.apk">Télécharger l'application Android (APK)</a>
+                </div>
                 <p class="muted small">Version <span data-app-version></span></p>
             </div>
         </section>
@@ -204,7 +251,10 @@
         <div class="modal__card" role="dialog" aria-modal="true" data-modal-content></div>
     </div>
 
-    <div class="toast" data-toast hidden></div>
+    <div class="toast" data-toast hidden>
+        <span data-toast-text></span>
+        <button type="button" data-toast-action hidden></button>
+    </div>
 
     <script src="./js/vendor/jspdf.umd.min.js"></script>
     <script src="./js/pdf.js"></script>
