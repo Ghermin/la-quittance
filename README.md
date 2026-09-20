@@ -57,11 +57,11 @@ Le navigateur ne permet pas d'ouvrir Gmail avec à la fois le destinataire et un
 
 ### Installer
 
-1. Depuis le téléphone, Réglages de la PWA → « Télécharger l'application Android (APK) », ou directement <https://ghermin.github.io/la-quittance/dist/la-quittance.apk>. L'APK signé est versionné dans `dist/` : pour publier une nouvelle version, reconstruire (`assembleRelease`), copier `app-release.apk` vers `dist/la-quittance.apk` et pousser.
+1. Depuis le téléphone, Réglages de la PWA → « Télécharger l'application Android (APK) », ou directement <https://ghermin.github.io/la-quittance/dist/la-quittance.apk>. L'APK signé est versionné dans `dist/` avec `dist/version.json`. Pour publier une nouvelle version : incrémenter `versionCode` et `versionName` dans `android/app/build.gradle.kts` (et `APP_VERSION` dans `js/app.js`, `CACHE` dans `sw.js` si le web a changé), lancer `powershell -ExecutionPolicy Bypass -File tools/publish-apk.ps1 -Notes "…"` qui construit, copie l'APK et réécrit `version.json`, puis commit et push.
 2. Ouvrir le fichier téléchargé. À la première fois, Android demande d'autoriser Chrome à installer des applications : accepter, puis reprendre l'installation.
 3. Les données ne passent pas toutes seules de la PWA à l'application : Réglages → « Exporter une sauvegarde » dans la PWA, puis « Importer une sauvegarde » dans l'application.
 
-Mise à jour : télécharger le nouvel APK et l'ouvrir. Tant que la même clé de signature est utilisée, l'installation se fait par-dessus et les données sont conservées.
+Mise à jour : l'application vérifie `dist/version.json` à chaque ouverture. Si une version plus récente existe, un message propose « Mettre à jour » (aussi dans Réglages → Application) : l'APK est téléchargé dans l'app, puis Android affiche sa fenêtre de confirmation. À la première fois, Android demande d'autoriser l'installation depuis cette application ; l'installation reprend au retour. Tant que la même clé de signature est utilisée, la mise à jour se fait par-dessus et les données sont conservées. Le téléchargement manuel de l'APK reste possible.
 
 ### Ce qui change par rapport à la PWA
 
@@ -70,7 +70,7 @@ Mise à jour : télécharger le nouvel APK et l'ouvrir. Tant que la même clé d
 - Rappel mensuel : Réglages → « Rappel mensuel ». Activé par défaut le 10 à 9 h (Android demande l'autorisation des notifications au premier lancement). La notification n'est pas envoyée si toutes les quittances du mois sont déjà envoyées. L'alarme est reprogrammée après un redémarrage ou une mise à jour de l'app.
 - Sauvegarde automatique : à chaque modification, l'app réécrit `Documents/Quittances/quittances-sauvegarde.json`. Ce fichier s'importe avec « Importer une sauvegarde », y compris après une réinstallation.
 - Le bouton Retour ferme la fenêtre ouverte, puis revient à l'onglet Quittance, puis quitte.
-- Aucune permission Internet : l'app ne parle qu'à Gmail et au stockage du téléphone.
+- Réseau : l'app ne contacte que `ghermin.github.io` pour vérifier et télécharger les mises à jour. Aucune donnée ne sort du téléphone.
 
 ### Construire l'APK
 

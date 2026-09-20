@@ -32,6 +32,10 @@
         version: function () {
             return bridge ? String(call('version')) : '';
         },
+        versionCode: function () {
+            var v = Number(call('versionCode'));
+            return isNaN(v) ? 0 : v;
+        },
         sendEmail: function (to, subject, body, name, blob) {
             return withBlob(blob, function (b64) { return call('sendEmail', to || '', subject, body, name, b64); });
         },
@@ -57,6 +61,15 @@
         },
         openNotificationSettings: function () {
             call('openNotificationSettings');
+        },
+        canInstallPackages: function () {
+            return call('canInstallPackages') === true;
+        },
+        requestInstallPermission: function () {
+            call('requestInstallPermission');
+        },
+        installApk: function (blob) {
+            return withBlob(blob, function (b64) { return call('installApk', b64); });
         }
     };
 })(window);

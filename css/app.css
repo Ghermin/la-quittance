@@ -1011,6 +1011,31 @@ label > textarea:focus {
     margin-bottom: 12px;
 }
 
+.update-card {
+    margin-bottom: 12px;
+}
+
+.update-card .item-actions {
+    margin-top: 8px;
+}
+
+.bar {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    overflow: hidden;
+    margin: 4px 0 8px;
+}
+
+.bar > span {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    background: var(--accent);
+    transition: width 0.2s ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
