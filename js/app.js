@@ -6,7 +6,7 @@
     var Native = window.QuittanceNative;
     var jsPDF = window.jspdf && window.jspdf.jsPDF;
     var native = Native.available;
-    var APP_VERSION = '1.2.0';
+    var APP_VERSION = '1.2.1';
     var STORAGE_KEY = 'quittance-loyer.v1';
     var REMINDER_INIT_KEY = 'quittance-loyer.reminder-init';
 
@@ -99,19 +99,39 @@
 
     var queue = { ids: null, title: '' };
     var resultId = null;
+    var modalCloseTimer = null;
+
+    function reducedMotion() {
+        return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
 
     function openModal(html) {
+        var m = $('[data-modal]');
+        clearTimeout(modalCloseTimer);
+        m.classList.remove('modal--closing');
         $('[data-modal-content]').innerHTML = html;
-        $('[data-modal]').hidden = false;
+        m.hidden = false;
         document.body.style.overflow = 'hidden';
     }
 
     function closeModal() {
+        var m = $('[data-modal]');
         queue.ids = null;
         resultId = null;
-        $('[data-modal]').hidden = true;
-        $('[data-modal-content]').innerHTML = '';
         document.body.style.overflow = '';
+        if (m.hidden) return;
+        var finish = function () {
+            m.hidden = true;
+            m.classList.remove('modal--closing');
+            $('[data-modal-content]').innerHTML = '';
+        };
+        if (reducedMotion()) {
+            finish();
+            return;
+        }
+        m.classList.add('modal--closing');
+        clearTimeout(modalCloseTimer);
+        modalCloseTimer = setTimeout(finish, 200);
     }
 
     var currentView = 'new';
@@ -1319,7 +1339,8 @@
 
     window.QuittanceApp = {
         back: function () {
-            if (!$('[data-modal]').hidden) {
+            var m = $('[data-modal]');
+            if (!m.hidden && !m.classList.contains('modal--closing')) {
                 closeModal();
                 return true;
             }
