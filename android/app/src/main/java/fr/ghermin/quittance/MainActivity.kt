@@ -112,6 +112,11 @@ class MainActivity : AppCompatActivity() {
         webView.saveState(outState)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (this::webView.isInitialized) webView.evaluateJavascript("window.QuittanceApp && window.QuittanceApp.onResume()", null)
+    }
+
     private fun applyDarkMode() {
         val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {

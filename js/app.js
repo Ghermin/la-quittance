@@ -6,9 +6,12 @@
     var Native = window.QuittanceNative;
     var jsPDF = window.jspdf && window.jspdf.jsPDF;
     var native = Native.available;
-    var APP_VERSION = '1.2.1';
+    var APP_VERSION = '1.2.2';
     var STORAGE_KEY = 'quittance-loyer.v1';
     var REMINDER_INIT_KEY = 'quittance-loyer.reminder-init';
+    var SITE_URL = 'https://ghermin.github.io/la-quittance/';
+    var UPDATE_INFO_URL = SITE_URL + 'dist/version.json';
+    var UPDATE_APK_URL = SITE_URL + 'dist/la-quittance.apk';
 
     function $(sel, root) {
         return (root || document).querySelector(sel);
@@ -755,10 +758,135 @@
         if (window.matchMedia('(display-mode: standalone)').matches) $('[data-install-hint]').hidden = true;
     }
 
+    var update = { info: null, available: false, checking: false, downloading: false, progress: 0, pendingApk: null, error: null };
+
+    function renderUpdateCard() {
+        var card = $('[data-update-card]');
+        if (!card) return;
+        card.hidden = !native;
+        if (!native) return;
+        var text = $('[data-update-text]');
+        var checkBtn = $('[data-action="update-check"]');
+        var installBtn = $('[data-action="update-install"]');
+        var bar = $('[data-update-bar]');
+        checkBtn.hidden = update.checking || update.downloading;
+        bar.hidden = !update.downloading;
+        installBtn.hidden = !(update.available && !update.downloading);
+        if (update.checking) {
+            text.textContent = 'Vérification…';
+        } else if (update.downloading) {
+            text.textContent = 'Téléchargement de la version ' + update.info.version + '… ' + update.progress + ' %';
+            $('[data-update-bar] span').style.width = update.progress + '%';
+        } else if (update.pendingApk) {
+            text.textContent = 'Version ' + update.info.version + ' téléchargée. Autorise l\'installation depuis cette application si Android le demande, puis confirme la mise à jour.';
+            installBtn.hidden = false;
+            installBtn.textContent = 'Installer';
+        } else if (update.available) {
+            text.textContent = 'Version ' + update.info.version + ' disponible' + (update.info.notes ? ' : ' + update.info.notes : '') + '.';
+            installBtn.textContent = 'Mettre à jour';
+        } else if (update.error) {
+            text.textContent = 'Vérification impossible (' + update.error + ').';
+        } else if (update.info) {
+            text.textContent = 'Application à jour.';
+        } else {
+            text.textContent = 'Les mises à jour sont vérifiées à l\'ouverture, puis installées en un tap.';
+        }
+    }
+
+    function checkUpdate(silent) {
+        if (!native || update.checking || update.downloading) return;
+        if (navigator.onLine === false) {
+            if (!silent) toast('Hors ligne : vérification impossible');
+            return;
+        }
+        update.checking = true;
+        update.error = null;
+        renderUpdateCard();
+        fetch(UPDATE_INFO_URL, { cache: 'no-store' }).then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+        }).then(function (info) {
+            update.checking = false;
+            update.info = info;
+            update.available = Number(info.code) > Native.versionCode();
+            renderUpdateCard();
+            if (update.available) {
+                toast('Version ' + info.version + ' disponible', { label: 'Mettre à jour', onClick: startUpdate });
+            } else if (!silent) {
+                toast('Application à jour');
+            }
+        }).catch(function (e) {
+            update.checking = false;
+            update.error = e && e.message ? e.message : 'réseau';
+            renderUpdateCard();
+            if (!silent) toast('Vérification impossible : ' + update.error);
+        });
+    }
+
+    function startUpdate() {
+        if (!update.available || update.downloading) return;
+        if (update.pendingApk) {
+            installPendingUpdate();
+            return;
+        }
+        update.downloading = true;
+        update.progress = 0;
+        update.error = null;
+        renderUpdateCard();
+        fetch(UPDATE_APK_URL + '?v=' + encodeURIComponent(update.info.code), { cache: 'no-store' }).then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            var total = Number(res.headers.get('Content-Length')) || Number(update.info.size) || 0;
+            if (!res.body || !res.body.getReader) return res.blob();
+            var reader = res.body.getReader();
+            var chunks = [];
+            var received = 0;
+            function pump() {
+                return reader.read().then(function (r) {
+                    if (r.done) return null;
+                    chunks.push(r.value);
+                    received += r.value.length;
+                    update.progress = total ? Math.min(100, Math.round(received * 100 / total)) : 0;
+                    renderUpdateCard();
+                    return pump();
+                });
+            }
+            return pump().then(function () { return new Blob(chunks, { type: 'application/vnd.android.package-archive' }); });
+        }).then(function (blob) {
+            update.downloading = false;
+            update.pendingApk = blob;
+            renderUpdateCard();
+            installPendingUpdate();
+        }).catch(function (e) {
+            update.downloading = false;
+            update.error = e && e.message ? e.message : 'réseau';
+            renderUpdateCard();
+            toast('Téléchargement impossible : ' + update.error);
+        });
+    }
+
+    function installPendingUpdate() {
+        if (!update.pendingApk) return;
+        if (!Native.canInstallPackages()) {
+            toast('Autorise l\'installation depuis cette application, puis reviens : l\'installation reprendra.');
+            Native.requestInstallPermission();
+            return;
+        }
+        Native.installApk(update.pendingApk).then(function (res) {
+            if (res === 'ok') {
+                toast('Confirme la mise à jour dans la fenêtre Android');
+                update.pendingApk = null;
+            } else {
+                toast('Installation impossible (' + res + ')');
+            }
+            renderUpdateCard();
+        });
+    }
+
     function renderAndroidCard() {
         var isAndroid = /Android/i.test(navigator.userAgent);
         $('[data-android-card]').hidden = !(native || isAndroid);
         $('[data-android-link]').hidden = !!native;
+        renderUpdateCard();
         if (native) {
             $('[data-android-text]').textContent = 'Application Android : « Envoyer » ouvre Gmail avec le destinataire, l\'objet, le message et le PDF déjà en place.';
             $('[data-install-hint]').hidden = true;
@@ -1311,6 +1439,8 @@
             case 'backup-export': exportBackup(); break;
             case 'wipe-all': wipeAll(); break;
             case 'notif-settings': Native.openNotificationSettings(); break;
+            case 'update-check': checkUpdate(false); break;
+            case 'update-install': startUpdate(); break;
             case 'email-reset':
                 state.email = { subject: Core.DEFAULT_EMAIL.subject, body: Core.DEFAULT_EMAIL.body };
                 save();
@@ -1359,6 +1489,9 @@
                 toast('Rappel mensuel programmé');
             }
             if (currentView === 'settings') renderReminder();
+        },
+        onResume: function () {
+            if (update.pendingApk && Native.canInstallPackages()) installPendingUpdate();
         }
     };
 
@@ -1381,6 +1514,7 @@
             Native.setReminder(true, state.reminder.day, state.reminder.hour);
         }
         scheduleBackup();
+        setTimeout(function () { checkUpdate(true); }, 1500);
     }
 
     initNewForm();

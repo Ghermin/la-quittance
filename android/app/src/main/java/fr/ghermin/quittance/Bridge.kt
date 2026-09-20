@@ -25,6 +25,48 @@ class Bridge(private val activity: MainActivity) {
         }
 
     @JavascriptInterface
+    fun versionCode(): Int =
+        try {
+            activity.packageManager.getPackageInfo(activity.packageName, 0).longVersionCode.toInt()
+        } catch (e: Exception) {
+            0
+        }
+
+    @JavascriptInterface
+    fun canInstallPackages(): Boolean = activity.packageManager.canRequestPackageInstalls()
+
+    @JavascriptInterface
+    fun requestInstallPermission() {
+        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + activity.packageName))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            activity.startActivity(intent)
+        } catch (e: Exception) {
+            // réglages indisponibles sur cet appareil
+        }
+    }
+
+    @JavascriptInterface
+    fun installApk(base64: String): String {
+        if (!activity.packageManager.canRequestPackageInstalls()) return "permission"
+        val bytes = decode(base64) ?: return "error"
+        val dir = File(activity.cacheDir, "updates").apply { mkdirs() }
+        val file = File(dir, "la-quittance.apk")
+        return try {
+            file.writeBytes(bytes)
+            val uri = FileProvider.getUriForFile(activity, activity.packageName + ".files", file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            activity.startActivity(intent)
+            "ok"
+        } catch (e: Exception) {
+            "error"
+        }
+    }
+
+    @JavascriptInterface
     fun sendEmail(to: String, subject: String, body: String, fileName: String, base64: String): String {
         val uri = cacheUri(fileName, base64) ?: return "error"
         val intent = Intent(Intent.ACTION_SEND).apply {
