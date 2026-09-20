@@ -1,6 +1,6 @@
 # Quittances de loyer
 
-Application web installable (PWA) pour générer des quittances de loyer en PDF et les envoyer depuis Android via Gmail. Usage strictement personnel, aucun serveur : toutes les données restent dans le navigateur du téléphone.
+Application web installable (PWA) pour générer des quittances de loyer en PDF et les envoyer depuis Android via Gmail, déclinée aussi en application Android native (dossier `android/`) qui ouvre Gmail avec le destinataire et le PDF déjà en place. Usage strictement personnel, aucun serveur : toutes les données restent sur le téléphone.
 
 ## Fonctions
 
@@ -10,8 +10,14 @@ Application web installable (PWA) pour générer des quittances de loyer en PDF 
 - Signature électronique dessinée au doigt ou importée depuis une image (fond blanc rendu transparent).
 - Quittance PDF A4 conforme au modèle usuel (montant en chiffres et en lettres, période, détail loyer / charges, date de paiement, mentions de la loi du 6 juillet 1989).
 - Numérotation automatique `AAAA-MM-NNN` (mois de la période + séquence).
+- Quittances en lot : onglet Quittance → « Tous les locataires » → un mois, les dates communes, et la liste des locataires à cocher (montants enregistrés sur chaque locataire ; ceux qui ont déjà une quittance sur la période sont décochés et signalés). Génère toutes les quittances d'un coup et ouvre la file d'envoi.
+- File d'envoi : les quittances s'envoient l'une après l'autre (« Envoyer la suivante »), chacune passe en « Envoyée » après le partage. Bouton « Tout en un seul PDF » pour un PDF multi-pages (impression, archivage).
+- Suivi d'envoi : chaque quittance est marquée « Envoyée le … » ou « Non envoyée » dans l'historique, modifiable à la main. Un bouton « Envoyer les N quittances non envoyées » rouvre la file d'envoi pour ce qui reste.
 - Historique des quittances : réouverture, renvoi, suppression, détection des doublons.
-- Envoi : bouton « Envoyer » → menu de partage Android → Gmail s'ouvre avec le PDF joint, l'objet et le message pré-remplis. L'adresse email du locataire est copiée dans le presse-papiers (le partage Android ne permet pas de pré-remplir le destinataire).
+- Envoi : bouton « Envoyer » → menu de partage Android → Gmail s'ouvre avec le PDF joint, l'objet et le message pré-remplis. L'adresse email du locataire est copiée dans le presse-papiers (le partage Android ne permet pas de pré-remplir le destinataire) ; le toast qui suit propose « Recopier » si besoin.
+- Email prêt à envoyer (.eml) : télécharge un brouillon complet — destinataire, objet, message, PDF joint, marqué `X-Unsent` — à ouvrir dans un client mail d'ordinateur (Outlook, Thunderbird…). C'est aussi le mode de repli quand le partage n'est pas disponible.
+- Application Android (APK) : même interface, mais « Envoyer » ouvre Gmail avec le destinataire, l'objet, le message **et** le PDF déjà en place ; il ne reste qu'à appuyer sur Envoyer dans Gmail. Voir « Application Android ».
+- Mode sombre automatique, selon le réglage du téléphone (PWA comme application Android).
 - Hors ligne : l'app fonctionne sans réseau une fois installée.
 
 ## Installation sur Android
@@ -26,7 +32,7 @@ L'app est en ligne sur `https://ghermin.github.io/la-quittance/` (GitHub Pages, 
 
 1. Réglages → renseigne le bailleur, signe dans la zone puis « Enregistrer la signature ». Ajuste le modèle d'email si besoin.
 2. Locataires → ajoute chaque locataire avec l'adresse du bien, le loyer et les charges.
-3. Quittance → choisis le locataire et le mois, vérifie les montants, « Générer la quittance », puis « Envoyer ».
+3. Quittance → choisis le locataire et le mois, vérifie les montants, « Générer la quittance », puis « Envoyer ». Avec plusieurs locataires, « Tous les locataires » génère les quittances du mois en une fois puis les envoie à la suite.
 
 ## Mise à jour de l'app
 
@@ -43,6 +49,47 @@ Réglages → Données :
 - **Tout effacer** : remet l'app à zéro après confirmation.
 
 Chaque élément se supprime aussi individuellement : locataire, quittance de l'historique, signature.
+
+## Application Android
+
+Le navigateur ne permet pas d'ouvrir Gmail avec à la fois le destinataire et une pièce jointe. L'application Android lève cette limite : c'est la même interface web, embarquée dans une petite application (WebView) avec un pont natif qui ouvre Gmail directement avec destinataire, objet, message et PDF. Aucun compte à connecter, aucune permission Internet : l'app ne parle qu'à Gmail sur le téléphone.
+
+### Installer
+
+1. Depuis le téléphone, Réglages de la PWA → « Télécharger l'application Android (APK) », ou directement <https://ghermin.github.io/la-quittance/dist/la-quittance.apk>. L'APK signé est versionné dans `dist/` : pour publier une nouvelle version, reconstruire (`assembleRelease`), copier `app-release.apk` vers `dist/la-quittance.apk` et pousser.
+2. Ouvrir le fichier téléchargé. À la première fois, Android demande d'autoriser Chrome à installer des applications : accepter, puis reprendre l'installation.
+3. Les données ne passent pas toutes seules de la PWA à l'application : Réglages → « Exporter une sauvegarde » dans la PWA, puis « Importer une sauvegarde » dans l'application.
+
+Mise à jour : télécharger le nouvel APK et l'ouvrir. Tant que la même clé de signature est utilisée, l'installation se fait par-dessus et les données sont conservées.
+
+### Ce qui change par rapport à la PWA
+
+- « Envoyer » ouvre Gmail (ou le sélecteur d'applications si Gmail est absent) avec tout pré-rempli, puis marque la quittance envoyée.
+- « PDF » ouvre le fichier dans le lecteur PDF du téléphone ; « Télécharger », « .eml », « Tout en un seul PDF » et la sauvegarde JSON vont dans le dossier Téléchargements.
+- Le bouton Retour ferme la fenêtre ouverte, puis revient à l'onglet Quittance, puis quitte.
+
+### Construire l'APK
+
+Prérequis : JDK 17 et le SDK Android (`platforms;android-35`, `build-tools;35.0.0`). Le projet Gradle est dans `android/` et embarque les fichiers web du dépôt à la compilation (`index.html`, `css/`, `js/`, `icons/`, `manifest.webmanifest`).
+
+```powershell
+$env:JAVA_HOME = 'C:\chemin\vers\jdk-17'
+$env:ANDROID_HOME = 'C:\chemin\vers\sdk'
+cd android
+.\gradlew.bat assembleDebug      # APK de test : app\build\outputs\apk\debug\app-debug.apk
+.\gradlew.bat assembleRelease    # APK signé si android\signing.properties est présent
+```
+
+`android/signing.properties` (ignoré par git) contient `QUITTANCE_KEYSTORE`, `QUITTANCE_KEYSTORE_PASSWORD`, `QUITTANCE_KEY_ALIAS`, `QUITTANCE_KEY_PASSWORD`. Le keystore de release doit être conservé précieusement : sans lui, impossible de publier une mise à jour installable par-dessus l'existant. Les icônes se régénèrent avec `powershell -ExecutionPolicy Bypass -File tools/make-android-icons.ps1`.
+
+### Publication automatique (optionnelle)
+
+Le workflow `.github/workflows/android.yml` construit l'APK sur GitHub Actions et, pour un tag `vX.Y.Z`, l'attache à une release GitHub sous le nom `la-quittance.apk` (`https://github.com/Ghermin/la-quittance/releases/latest/download/la-quittance.apk`). Il faut renseigner quatre secrets dans le dépôt (Settings → Secrets and variables → Actions) : `QUITTANCE_KEYSTORE_BASE64` (le fichier `.jks` encodé en base64), `QUITTANCE_KEYSTORE_PASSWORD`, `QUITTANCE_KEY_ALIAS`, `QUITTANCE_KEY_PASSWORD`. Publier une version :
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
 
 ## Développement
 
@@ -65,19 +112,25 @@ Chaque élément se supprime aussi individuellement : locataire, quittance de l'
 ## Structure
 
 ```
-index.html               Interface (4 onglets : Quittance, Locataires, Historique, Réglages)
+index.html               Interface (4 onglets : Quittance (une / en lot), Locataires, Historique, Réglages)
 css/app.css              Styles mobile-first
-js/app.js                Logique : stockage local, formulaires, signature, partage
+js/app.js                Logique : stockage local, formulaires, lot + file d'envoi, signature, partage, .eml
 js/pdf.js                Construction du PDF, montant en lettres, dates en français
 js/vendor/jspdf.umd.min.js  jsPDF 2.5.2
 manifest.webmanifest     Manifest PWA
 sw.js                    Service worker (cache hors ligne)
 icons/                   Icônes PWA
-tools/                   Scripts de génération (icônes, PDF d'exemple)
+tools/                   Scripts de génération (icônes PWA et Android, PDF d'exemple)
+android/                 Application Android (WebView + pont natif Gmail), projet Gradle
+dist/la-quittance.apk    APK Android signé, servi par GitHub Pages
+.github/workflows/       Construction et publication de l'APK (optionnel)
 ```
 
 ## Limites connues
 
-- Le destinataire du mail n'est pas pré-rempli via le partage Android (limitation de la Web Share API) : il est copié dans le presse-papiers, à coller dans Gmail.
+- Le destinataire du mail n'est pas pré-rempli via le partage Android (limitation de la Web Share API, qui ne transmet pas `EXTRA_EMAIL`) : il est copié dans le presse-papiers, à coller dans Gmail. Le fichier `.eml` contourne la limite mais s'ouvre comme brouillon éditable surtout sur ordinateur ; Gmail Android l'affiche en lecture seule.
+- Le partage ne permet d'envoyer qu'une quittance par mail : la file d'envoi enchaîne les envois un par un.
+- « Envoyée » est posé quand le partage se termine (l'app cible a été choisie) ou, dans l'application Android, quand Gmail s'ouvre, pas quand le mail est réellement parti : à corriger à la main dans l'historique si besoin.
+- L'application Android et la PWA ont chacune leurs données ; le passage de l'une à l'autre se fait par export puis import de la sauvegarde JSON.
 - Un seul profil de bailleur.
 - Les quittances anciennes sont régénérées à la demande à partir des données enregistrées (et de la signature en vigueur au moment de leur création).

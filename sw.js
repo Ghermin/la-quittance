@@ -1,4 +1,4 @@
-var CACHE = 'quittance-loyer-v1';
+var CACHE = 'quittance-loyer-v2';
 var ASSETS = [
     './',
     './index.html',
