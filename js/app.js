@@ -2,14 +2,13 @@
     'use strict';
 
     var Q = window.QuittancePdf;
+    var Core = window.QuittanceCore;
+    var Native = window.QuittanceNative;
     var jsPDF = window.jspdf && window.jspdf.jsPDF;
-    var native = window.AndroidBridge || null;
-    var APP_VERSION = '1.1.0';
+    var native = Native.available;
+    var APP_VERSION = '1.2.0';
     var STORAGE_KEY = 'quittance-loyer.v1';
-    var DEFAULT_EMAIL = {
-        subject: 'Quittance de loyer - {periode} - {adresse}',
-        body: 'Bonjour {locataire},\n\nVeuillez trouver ci-joint votre quittance de loyer n° {numero} pour la période du {debut} au {fin}, concernant le logement situé {adresse}.\n\nMontant réglé : {montant}.\n\nCordialement,\n{bailleur}'
-    };
+    var REMINDER_INIT_KEY = 'quittance-loyer.reminder-init';
 
     function $(sel, root) {
         return (root || document).querySelector(sel);
@@ -25,71 +24,34 @@
         });
     }
 
-    function uid() {
-        return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    }
-
-    function round2(n) {
-        return Math.round((Number(n) || 0) * 100) / 100;
-    }
-
-    function pick(obj, keys) {
-        var out = {};
-        keys.forEach(function (k) {
-            var v = obj[k];
-            out[k] = typeof v === 'string' ? v.trim() : v;
-        });
-        return out;
-    }
-
-    function lines(text) {
-        return String(text || '').split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
-    }
-
-    function firstLine(text) {
-        return lines(text)[0] || '';
-    }
-
-    function oneLine(text) {
-        return lines(text).join(', ');
-    }
-
     function noop() {}
 
-    function defaultState() {
-        return {
-            landlord: { civility: 'M.', firstName: '', lastName: '', address: '', city: '', email: '' },
-            tenants: [],
-            signatures: {},
-            currentSignatureId: null,
-            receipts: [],
-            email: { subject: DEFAULT_EMAIL.subject, body: DEFAULT_EMAIL.body }
-        };
+    function thisMonth() {
+        return Q.todayISO().slice(0, 7);
     }
 
-    function hydrate(parsed) {
-        var base = defaultState();
-        base.landlord = Object.assign(base.landlord, parsed.landlord || {});
-        base.email = Object.assign(base.email, parsed.email || {});
-        base.tenants = Array.isArray(parsed.tenants) ? parsed.tenants : [];
-        base.receipts = Array.isArray(parsed.receipts) ? parsed.receipts : [];
-        base.signatures = parsed.signatures && typeof parsed.signatures === 'object' ? parsed.signatures : {};
-        base.currentSignatureId = parsed.currentSignatureId || null;
-        return base;
+    function capitalize(s) {
+        return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    }
+
+    function plural(n, one, many) {
+        return n + ' ' + (n > 1 ? many : one);
     }
 
     function loadState() {
         try {
             var raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) return defaultState();
-            return hydrate(JSON.parse(raw) || {});
+            if (!raw) return Core.defaultState();
+            return Core.hydrate(JSON.parse(raw) || {});
         } catch (e) {
             toast('Données locales illisibles : démarrage à vide');
-            return defaultState();
+            return Core.defaultState();
         }
     }
 
     var state = loadState();
+    var backupTimer = null;
+    var lastBackupAt = null;
 
     function save() {
         try {
@@ -99,10 +61,25 @@
         }
         updateStorageInfo();
         renderHeader();
+        scheduleBackup();
+    }
+
+    function scheduleBackup() {
+        if (!native) return;
+        clearTimeout(backupTimer);
+        backupTimer = setTimeout(function () {
+            var month = thisMonth();
+            var res = Native.writeBackup(JSON.stringify(Core.backupPayload(state)), Core.monthDone(state, month) ? month : '');
+            if (res === 'ok') {
+                lastBackupAt = new Date();
+                renderBackupStatus();
+            }
+        }, 1200);
     }
 
     var toastTimer;
     var toastAction = null;
+
     function toast(msg, action) {
         var t = $('[data-toast]');
         if (!t) return;
@@ -160,47 +137,26 @@
     }
 
     function renderHeader() {
-        var sub = $('[data-header-sub]');
         var name = [state.landlord.firstName, state.landlord.lastName].map(function (v) { return String(v || '').trim(); }).filter(Boolean).join(' ');
-        sub.textContent = name ? 'Bailleur : ' + name : 'Bailleur à configurer';
-    }
-
-    function tenantById(id) {
-        return state.tenants.find(function (t) { return t.id === id; }) || null;
-    }
-
-    function receiptById(id) {
-        return state.receipts.find(function (r) { return r.id === id; }) || null;
-    }
-
-    function currentSignature() {
-        return (state.currentSignatureId && state.signatures[state.currentSignatureId]) || null;
-    }
-
-    function landlordComplete() {
-        var l = state.landlord;
-        return !!(l.firstName.trim() && l.lastName.trim() && l.address.trim());
-    }
-
-    function nextNumber(periodStart) {
-        var prefix = periodStart.slice(0, 7);
-        var seq = state.receipts.filter(function (r) { return r.number.indexOf(prefix + '-') === 0; }).length + 1;
-        var num;
-        do {
-            num = prefix + '-' + ('00' + seq).slice(-3);
-            seq += 1;
-        } while (state.receipts.some(function (r) { return r.number === num; }));
-        return num;
-    }
-
-    function findDuplicate(tenantId, periodStart) {
-        return state.receipts.find(function (r) { return r.tenantId === tenantId && r.periodStart === periodStart; }) || null;
+        $('[data-header-sub]').textContent = name || 'Bailleur à configurer';
     }
 
     var newForm = $('[data-form="new"]');
+    var batchForm = $('[data-form="batch"]');
+    var newMode = 'single';
+    var batchSel = { month: null, checked: {}, pay: {} };
 
     function field(name) {
         return newForm.querySelector('[data-field="' + name + '"]');
+    }
+
+    function bfield(name) {
+        return batchForm.querySelector('[data-bfield="' + name + '"]');
+    }
+
+    function applyPaymentDate() {
+        var t = Core.tenantById(state, field('tenantId').value);
+        field('paymentDate').value = Core.paymentDateFor(t, field('periodStart').value, Q.todayISO());
     }
 
     function applyMonth() {
@@ -208,21 +164,25 @@
         if (!b) return;
         field('periodStart').value = b.start;
         field('periodEnd').value = b.end;
+        applyPaymentDate();
     }
 
     function applyTenantDefaults() {
-        var t = tenantById(field('tenantId').value);
+        var t = Core.tenantById(state, field('tenantId').value);
         if (!t) return;
         field('rent').value = t.rent;
         field('charges').value = t.charges;
+        applyPaymentDate();
     }
 
-    var batchForm = $('[data-form="batch"]');
-    var newMode = 'single';
-    var batchSelection = { month: null, checked: {} };
-
-    function bfield(name) {
-        return batchForm.querySelector('[data-bfield="' + name + '"]');
+    function initNewForm() {
+        var today = Q.todayISO();
+        field('month').value = thisMonth();
+        applyMonth();
+        field('paymentDate').value = today;
+        field('issueDate').value = today;
+        bfield('month').value = thisMonth();
+        bfield('issueDate').value = today;
     }
 
     function setNewMode(mode) {
@@ -230,36 +190,28 @@
         renderNew();
     }
 
-    function initNewForm() {
-        var today = Q.todayISO();
-        field('month').value = today.slice(0, 7);
-        applyMonth();
-        field('paymentDate').value = today;
-        field('issueDate').value = today;
-        bfield('month').value = today.slice(0, 7);
-        bfield('paymentDate').value = today;
-        bfield('issueDate').value = today;
-    }
-
     function renderNew() {
         var hasTenants = state.tenants.length > 0;
-        if (state.tenants.length < 2) newMode = 'single';
         $('[data-empty-tenants]').hidden = hasTenants;
+        $('[data-new-tools]').hidden = !hasTenants;
+        renderHero();
+        if (!hasTenants) return;
+        if (state.tenants.length < 2) newMode = 'single';
         $('[data-new-mode]').hidden = state.tenants.length < 2;
         $$('[data-mode]').forEach(function (b) {
             b.setAttribute('aria-pressed', b.getAttribute('data-mode') === newMode ? 'true' : 'false');
         });
-        newForm.hidden = !hasTenants || newMode !== 'single';
-        batchForm.hidden = !hasTenants || newMode !== 'batch';
+        newForm.hidden = newMode !== 'single';
+        batchForm.hidden = newMode !== 'batch';
         if (newMode === 'batch') renderBatch();
         var select = field('tenantId');
         var prev = select.value;
         select.innerHTML = state.tenants.map(function (t) {
-            return '<option value="' + esc(t.id) + '">' + esc(Q.fullName(t)) + ' - ' + esc(firstLine(t.propertyAddress)) + '</option>';
+            return '<option value="' + esc(t.id) + '">' + esc(Q.fullName(t)) + ' - ' + esc(Core.firstLine(t.propertyAddress)) + '</option>';
         }).join('');
-        if (prev && tenantById(prev)) {
+        if (prev && Core.tenantById(state, prev)) {
             select.value = prev;
-        } else if (hasTenants) {
+        } else {
             select.value = state.tenants[0].id;
             applyTenantDefaults();
         }
@@ -267,45 +219,95 @@
         updateNewSummary();
     }
 
+    function renderHero() {
+        var box = $('[data-month-hero]');
+        if (!state.tenants.length) {
+            box.innerHTML = '';
+            return;
+        }
+        var ms = Core.monthStatus(state, thisMonth());
+        var title = capitalize(Q.monthLabel(ms.bounds.start));
+        var html;
+        if (ms.todo.length) {
+            var n = ms.todo.length;
+            html = '<section class="hero hero--todo">'
+                + '<span class="hero__eyebrow">Ce mois</span>'
+                + '<h2 class="hero__title">' + esc(title) + '</h2>'
+                + '<p class="hero__lead">' + plural(n, 'quittance à faire', 'quittances à faire') + ' · ' + esc(Q.formatEuro(ms.todoTotal)) + '</p>'
+                + '<ul class="chips">' + ms.todo.map(function (t) { return '<li>' + esc(Q.fullName(t)) + '</li>'; }).join('') + '</ul>'
+                + (ms.receipts.length ? '<p class="hero__note">' + plural(ms.receipts.length, 'déjà générée', 'déjà générées') + (ms.unsent.length ? ', ' + plural(ms.unsent.length, 'non envoyée', 'non envoyées') : '') + '</p>' : '')
+                + '<div class="hero__actions">'
+                + '<button type="button" class="btn btn-hero" data-action="month-go">' + (n > 1 ? 'Générer et envoyer les ' + n + ' quittances' : 'Générer et envoyer') + '</button>'
+                + '<button type="button" class="btn btn-hero-ghost" data-action="month-review">Vérifier avant</button>'
+                + '</div></section>';
+        } else if (ms.unsent.length) {
+            html = '<section class="hero hero--wait">'
+                + '<span class="hero__eyebrow">Ce mois</span>'
+                + '<h2 class="hero__title">' + esc(title) + '</h2>'
+                + '<p class="hero__lead">' + plural(ms.receipts.length, 'quittance générée', 'quittances générées') + ' · ' + plural(ms.unsent.length, 'reste à envoyer', 'restent à envoyer') + '</p>'
+                + '<ul class="chips">' + ms.unsent.map(function (r) { return '<li>' + esc(Q.fullName(r.tenant)) + '</li>'; }).join('') + '</ul>'
+                + '<div class="hero__actions">'
+                + '<button type="button" class="btn btn-hero" data-action="month-send-rest">' + (ms.unsent.length > 1 ? 'Envoyer les ' + ms.unsent.length + ' restantes' : 'Envoyer la dernière') + '</button>'
+                + '<button type="button" class="btn btn-hero-ghost" data-nav-to="history">Voir l\'historique</button>'
+                + '</div></section>';
+        } else {
+            html = '<section class="hero hero--done">'
+                + '<span class="hero__eyebrow">Ce mois</span>'
+                + '<h2 class="hero__title">' + esc(title) + '</h2>'
+                + '<p class="hero__lead">Tout est envoyé ✓ · ' + plural(ms.receipts.length, 'quittance', 'quittances') + '</p>'
+                + '<p class="hero__note">Rien à faire avant le mois prochain.</p>'
+                + '<div class="hero__actions">'
+                + '<button type="button" class="btn btn-hero-ghost" data-nav-to="history">Voir l\'historique</button>'
+                + '</div></section>';
+        }
+        box.innerHTML = html;
+    }
+
     function updateNewSummary() {
         var rent = Number(field('rent').value) || 0;
         var charges = Number(field('charges').value) || 0;
         var start = field('periodStart').value;
         $('[data-total]').textContent = Q.formatEuro(rent + charges);
-        $('[data-next-number]').textContent = /^\d{4}-\d{2}-\d{2}$/.test(start) ? nextNumber(start) : '-';
-        $('[data-notice-landlord]').hidden = landlordComplete();
-        $('[data-notice-signature]').hidden = !!currentSignature();
-        $('[data-notice-duplicate]').hidden = !findDuplicate(field('tenantId').value, start);
+        $('[data-next-number]').textContent = /^\d{4}-\d{2}-\d{2}$/.test(start) ? Core.nextNumber(state, start) : '-';
+        $('[data-notice-landlord]').hidden = Core.landlordComplete(state);
+        $('[data-notice-signature]').hidden = !!Core.currentSignature(state);
+        $('[data-notice-duplicate]').hidden = !Core.findDuplicate(state, field('tenantId').value, start);
     }
 
     newForm.addEventListener('change', function (e) {
         var name = e.target.getAttribute('data-field');
         if (name === 'month') applyMonth();
         if (name === 'tenantId') applyTenantDefaults();
+        if (name === 'periodStart') applyPaymentDate();
         updateNewSummary();
     });
 
     newForm.addEventListener('input', updateNewSummary);
 
-    newForm.addEventListener('submit', function (e) {
-        e.preventDefault();
+    function requireReady() {
         if (!jsPDF) {
             toast('Librairie PDF non chargée : recharge la page');
-            return;
+            return false;
         }
-        var tenant = tenantById(field('tenantId').value);
+        if (!Core.landlordComplete(state)) {
+            toast('Complète d\'abord les coordonnées du bailleur');
+            showView('settings');
+            return false;
+        }
+        return true;
+    }
+
+    newForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!requireReady()) return;
+        var tenant = Core.tenantById(state, field('tenantId').value);
         if (!tenant) {
             toast('Choisis un locataire');
             return;
         }
-        if (!landlordComplete()) {
-            toast('Complète d\'abord les coordonnées du bailleur');
-            showView('settings');
-            return;
-        }
         var periodStart = field('periodStart').value;
         var periodEnd = field('periodEnd').value;
-        if (!periodStart || !periodEnd || periodEnd < periodStart) {
+        if (!Core.periodValid(periodStart, periodEnd)) {
             toast('Période invalide');
             return;
         }
@@ -319,114 +321,110 @@
             toast('Montants invalides');
             return;
         }
-        if (!currentSignature() && !window.confirm('Aucune signature enregistrée. Générer la quittance sans signature ?')) return;
-        if (findDuplicate(tenant.id, periodStart) && !window.confirm('Une quittance existe déjà pour ce locataire sur cette période. En générer une nouvelle quand même ?')) return;
+        if (!Core.currentSignature(state) && !window.confirm('Aucune signature enregistrée. Générer la quittance sans signature ?')) return;
+        if (Core.findDuplicate(state, tenant.id, periodStart) && !window.confirm('Une quittance existe déjà pour ce locataire sur cette période. En générer une nouvelle quand même ?')) return;
 
-        var receipt = createReceipt(tenant, {
+        var receipt = Core.buildReceipt(state, tenant, {
             periodStart: periodStart,
             periodEnd: periodEnd,
             paymentDate: field('paymentDate').value,
             issueDate: field('issueDate').value,
-            signaturePlace: field('signaturePlace').value.trim(),
+            signaturePlace: field('signaturePlace').value,
             rent: rent,
             charges: charges
         });
+        state.receipts.push(receipt);
         save();
-        updateNewSummary();
+        renderNew();
         openResult(receipt);
     });
-
-    function createReceipt(tenant, opts) {
-        var receipt = {
-            id: uid(),
-            number: nextNumber(opts.periodStart),
-            createdAt: new Date().toISOString(),
-            sentAt: null,
-            tenantId: tenant.id,
-            tenant: pick(tenant, ['civility', 'firstName', 'lastName', 'email', 'propertyAddress']),
-            landlord: pick(state.landlord, ['civility', 'firstName', 'lastName', 'address', 'city']),
-            periodStart: opts.periodStart,
-            periodEnd: opts.periodEnd,
-            paymentDate: opts.paymentDate,
-            issueDate: opts.issueDate,
-            signaturePlace: opts.signaturePlace || state.landlord.city.trim(),
-            rent: round2(opts.rent),
-            charges: round2(opts.charges),
-            signatureId: currentSignature() ? state.currentSignatureId : null
-        };
-        state.receipts.push(receipt);
-        return receipt;
-    }
 
     function renderBatch() {
         var month = bfield('month').value;
         var bounds = Q.monthBounds(month);
-        if (batchSelection.month !== month) {
-            batchSelection.month = month;
-            batchSelection.checked = {};
-        }
+        var today = Q.todayISO();
+        if (batchSel.month !== month) batchSel = { month: month, checked: {}, pay: {} };
         state.tenants.forEach(function (t) {
-            if (!(t.id in batchSelection.checked)) batchSelection.checked[t.id] = !(bounds && findDuplicate(t.id, bounds.start));
+            if (!(t.id in batchSel.checked)) batchSel.checked[t.id] = !(bounds && Core.findDuplicate(state, t.id, bounds.start));
+            if (!(t.id in batchSel.pay)) batchSel.pay[t.id] = bounds ? Core.paymentDateFor(t, bounds.start, today) : today;
         });
         if (!bfield('signaturePlace').value) bfield('signaturePlace').value = state.landlord.city || '';
         $('[data-batch-list]').innerHTML = state.tenants.map(function (t) {
-            var dup = bounds && findDuplicate(t.id, bounds.start);
-            return '<label class="batch-row">'
-                + '<input type="checkbox" data-batch-tenant="' + esc(t.id) + '"' + (batchSelection.checked[t.id] ? ' checked' : '') + '>'
-                + '<span class="batch-row__main"><strong>' + esc(Q.fullName(t)) + '</strong>'
-                + '<span class="muted small">' + esc(firstLine(t.propertyAddress)) + ' · loyer ' + esc(Q.formatEuro(t.rent)) + ' + charges ' + esc(Q.formatEuro(t.charges)) + '</span>'
-                + (dup ? '<span class="badge badge--warn">Déjà générée (n° ' + esc(dup.number) + ')</span>' : '')
-                + '</span>'
-                + '<span class="list-item__amount">' + esc(Q.formatEuro(t.rent + t.charges)) + '</span>'
-                + '</label>';
+            var dup = bounds && Core.findDuplicate(state, t.id, bounds.start);
+            var on = !!batchSel.checked[t.id];
+            return '<div class="pick' + (on ? ' is-on' : '') + '">'
+                + '<label class="pick__main"><input type="checkbox" data-batch-tenant="' + esc(t.id) + '"' + (on ? ' checked' : '') + '>'
+                + '<span class="pick__text"><strong>' + esc(Q.fullName(t)) + '</strong>'
+                + '<span class="muted small">' + esc(Core.firstLine(t.propertyAddress)) + ' · ' + esc(Q.formatEuro(t.rent)) + ' + ' + esc(Q.formatEuro(t.charges)) + '</span>'
+                + (dup ? '<span class="chip chip--warn">Déjà générée · n° ' + esc(dup.number) + '</span>' : '')
+                + '</span><span class="pick__amount">' + esc(Q.formatEuro(Q.total(t))) + '</span></label>'
+                + '<label class="pick__date">Payé le<input type="date" data-batch-pay="' + esc(t.id) + '" value="' + esc(batchSel.pay[t.id]) + '"></label>'
+                + '</div>';
         }).join('');
         updateBatchSummary();
     }
 
     function selectedBatchTenants() {
-        return state.tenants.filter(function (t) { return batchSelection.checked[t.id]; });
+        return state.tenants.filter(function (t) { return batchSel.checked[t.id]; });
     }
 
     function updateBatchSummary() {
         var selected = selectedBatchTenants();
-        var total = selected.reduce(function (s, t) { return s + t.rent + t.charges; }, 0);
+        var total = selected.reduce(function (s, t) { return s + Q.total(t); }, 0);
         $('[data-batch-count]').textContent = String(selected.length);
         $('[data-batch-total]').textContent = Q.formatEuro(total);
-        $('[data-bnotice-landlord]').hidden = landlordComplete();
-        $('[data-bnotice-signature]').hidden = !!currentSignature();
+        $('[data-bnotice-landlord]').hidden = Core.landlordComplete(state);
+        $('[data-bnotice-signature]').hidden = !!Core.currentSignature(state);
         $('[data-batch-submit]').textContent = selected.length > 1 ? 'Générer les ' + selected.length + ' quittances' : 'Générer la quittance';
     }
 
     batchForm.addEventListener('change', function (e) {
         var cb = e.target.closest('[data-batch-tenant]');
         if (cb) {
-            batchSelection.checked[cb.getAttribute('data-batch-tenant')] = cb.checked;
+            batchSel.checked[cb.getAttribute('data-batch-tenant')] = cb.checked;
+            cb.closest('.pick').classList.toggle('is-on', cb.checked);
             updateBatchSummary();
+            return;
+        }
+        var pay = e.target.closest('[data-batch-pay]');
+        if (pay) {
+            batchSel.pay[pay.getAttribute('data-batch-pay')] = pay.value;
             return;
         }
         if (e.target.getAttribute('data-bfield') === 'month') renderBatch();
     });
 
+    function createBatch(tenants, bounds, issueDate, place, payFor) {
+        return tenants.map(function (t) {
+            var r = Core.buildReceipt(state, t, {
+                periodStart: bounds.start,
+                periodEnd: bounds.end,
+                paymentDate: payFor(t),
+                issueDate: issueDate,
+                signaturePlace: place,
+                rent: t.rent,
+                charges: t.charges
+            });
+            state.receipts.push(r);
+            return r.id;
+        });
+    }
+
+    function invalidAmounts(tenants) {
+        return tenants.find(function (t) { return !(t.rent >= 0) || !(t.charges >= 0) || t.rent + t.charges <= 0; });
+    }
+
     batchForm.addEventListener('submit', function (e) {
         e.preventDefault();
-        if (!jsPDF) {
-            toast('Librairie PDF non chargée : recharge la page');
-            return;
-        }
-        if (!landlordComplete()) {
-            toast('Complète d\'abord les coordonnées du bailleur');
-            showView('settings');
-            return;
-        }
+        if (!requireReady()) return;
         var bounds = Q.monthBounds(bfield('month').value);
         if (!bounds) {
             toast('Mois invalide');
             return;
         }
-        var paymentDate = bfield('paymentDate').value;
         var issueDate = bfield('issueDate').value;
-        if (!paymentDate || !issueDate) {
-            toast('Renseigne la date de paiement et la date d\'établissement');
+        if (!issueDate) {
+            toast('Renseigne la date d\'établissement');
             return;
         }
         var selected = selectedBatchTenants();
@@ -434,83 +432,63 @@
             toast('Coche au moins un locataire');
             return;
         }
-        var invalid = selected.find(function (t) { return !(t.rent >= 0) || !(t.charges >= 0) || t.rent + t.charges <= 0; });
+        var badDate = selected.find(function (t) { return !/^\d{4}-\d{2}-\d{2}$/.test(batchSel.pay[t.id] || ''); });
+        if (badDate) {
+            toast('Date de paiement manquante pour ' + Q.fullName(badDate));
+            return;
+        }
+        var invalid = invalidAmounts(selected);
         if (invalid) {
             toast('Montants invalides pour ' + Q.fullName(invalid));
             return;
         }
-        var dups = selected.filter(function (t) { return findDuplicate(t.id, bounds.start); });
+        var dups = selected.filter(function (t) { return Core.findDuplicate(state, t.id, bounds.start); });
         if (dups.length && !window.confirm(dups.length + ' locataire(s) ont déjà une quittance sur cette période. En générer une nouvelle quand même ?')) return;
-        if (!currentSignature() && !window.confirm('Aucune signature enregistrée. Générer les quittances sans signature ?')) return;
+        if (!Core.currentSignature(state) && !window.confirm('Aucune signature enregistrée. Générer les quittances sans signature ?')) return;
 
-        var place = bfield('signaturePlace').value.trim();
-        var ids = selected.map(function (t) {
-            return createReceipt(t, {
-                periodStart: bounds.start,
-                periodEnd: bounds.end,
-                paymentDate: paymentDate,
-                issueDate: issueDate,
-                signaturePlace: place,
-                rent: t.rent,
-                charges: t.charges
-            }).id;
-        });
+        var ids = createBatch(selected, bounds, issueDate, bfield('signaturePlace').value.trim(), function (t) { return batchSel.pay[t.id]; });
         save();
-        batchSelection.month = null;
-        renderBatch();
-        updateNewSummary();
+        batchSel.month = null;
+        renderNew();
         openQueue(ids, 'Quittances de ' + Q.monthLabel(bounds.start));
     });
 
-    function openResult(receipt) {
-        resultId = receipt.id;
-        openModal(
-            '<span class="badge">Quittance n° ' + esc(receipt.number) + '</span>'
-            + '<h3>' + esc(Q.fullName(receipt.tenant)) + '</h3>'
-            + '<p class="muted">' + esc(Q.periodLabel(receipt.periodStart, receipt.periodEnd)) + ' · ' + esc(firstLine(receipt.tenant.propertyAddress)) + '</p>'
-            + '<div class="result-total">' + esc(Q.formatEuro(Q.total(receipt))) + '</div>'
-            + '<div class="status-line">' + sentStatus(receipt) + '</div>'
-            + '<p class="muted small">' + sendHint(receipt) + '</p>'
-            + '<div class="result-actions">'
-            + '<button type="button" class="btn btn-primary" data-action="share" data-id="' + esc(receipt.id) + '">Envoyer la quittance</button>'
-            + '<button type="button" class="btn" data-action="open" data-id="' + esc(receipt.id) + '">Ouvrir le PDF</button>'
-            + '<button type="button" class="btn" data-action="download" data-id="' + esc(receipt.id) + '">Télécharger le PDF</button>'
-            + '<button type="button" class="btn" data-action="eml" data-id="' + esc(receipt.id) + '">Email prêt à envoyer (.eml)</button>'
-            + '<button type="button" class="btn" data-action="close-modal">Fermer</button></div>'
-        );
-    }
-
-    function openQueue(ids, title) {
-        queue.ids = ids;
-        queue.title = title;
-        renderQueue();
-    }
-
-    function queueReceipts() {
-        return (queue.ids || []).map(receiptById).filter(Boolean);
-    }
-
-    function renderQueue() {
-        var receipts = queueReceipts();
-        if (!receipts.length) {
-            closeModal();
+    function monthGenerateAndSend() {
+        if (!requireReady()) return;
+        var ms = Core.monthStatus(state, thisMonth());
+        if (!ms || !ms.todo.length) return;
+        var invalid = invalidAmounts(ms.todo);
+        if (invalid) {
+            toast('Montants invalides pour ' + Q.fullName(invalid) + ' : corrige la fiche locataire');
             return;
         }
-        var pending = receipts.filter(function (r) { return !r.sentAt; });
-        var total = receipts.reduce(function (s, r) { return s + Q.total(r); }, 0);
-        openModal(
-            '<span class="badge">' + receipts.length + ' quittance(s) · ' + esc(Q.formatEuro(total)) + '</span>'
-            + '<h3>' + esc(queue.title) + '</h3>'
-            + '<p class="muted small">' + queueHint() + '</p>'
-            + '<div class="queue">' + receipts.map(queueRow).join('') + '</div>'
-            + '<div class="result-actions">'
-            + (pending.length
-                ? '<button type="button" class="btn btn-primary" data-action="queue-next">Envoyer la suivante · ' + pending.length + ' restante(s)</button>'
-                : '<p class="muted small">Toutes les quittances sont envoyées.</p>')
-            + '<button type="button" class="btn" data-action="queue-merged">Tout en un seul PDF (' + receipts.length + ' page(s))</button>'
-            + '<button type="button" class="btn" data-action="close-modal">Fermer</button>'
-            + '</div>'
-        );
+        if (!Core.currentSignature(state) && !window.confirm('Aucune signature enregistrée. Générer les quittances sans signature ?')) return;
+        var today = Q.todayISO();
+        var ids = createBatch(ms.todo, ms.bounds, today, state.landlord.city, function (t) {
+            return Core.paymentDateFor(t, ms.bounds.start, today);
+        });
+        save();
+        batchSel.month = null;
+        renderNew();
+        openQueue(ids, 'Quittances de ' + Q.monthLabel(ms.bounds.start));
+        var first = Core.receiptById(state, ids[0]);
+        if (first) shareReceipt(first);
+    }
+
+    function monthReview() {
+        newMode = 'batch';
+        bfield('month').value = thisMonth();
+        batchSel.month = null;
+        renderNew();
+        var form = $('[data-form="batch"]');
+        if (form) form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function monthSendRest() {
+        var ms = Core.monthStatus(state, thisMonth());
+        if (!ms || !ms.unsent.length) return;
+        openQueue(ms.unsent.map(function (r) { return r.id; }), 'Quittances de ' + Q.monthLabel(ms.bounds.start));
+        shareReceipt(ms.unsent[0]);
     }
 
     function sendHint(receipt) {
@@ -527,6 +505,57 @@
         return 'Le partage Android n\'envoie qu\'un mail à la fois : à chaque « Envoyer », Gmail s\'ouvre avec le PDF joint et l\'adresse du locataire est copiée, colle-la dans « À ». La quittance est ensuite marquée envoyée.';
     }
 
+    function openResult(receipt) {
+        resultId = receipt.id;
+        openModal(
+            '<span class="chip">Quittance n° ' + esc(receipt.number) + '</span>'
+            + '<h3 style="margin-top:10px">' + esc(Q.fullName(receipt.tenant)) + '</h3>'
+            + '<p class="muted">' + esc(Q.periodLabel(receipt.periodStart, receipt.periodEnd)) + ' · ' + esc(Core.firstLine(receipt.tenant.propertyAddress)) + '</p>'
+            + '<div class="result-total">' + esc(Q.formatEuro(Q.total(receipt))) + '</div>'
+            + '<div class="status-line">' + sentStatus(receipt) + '</div>'
+            + '<p class="muted small" style="margin-top:10px">' + sendHint(receipt) + '</p>'
+            + '<div class="result-actions">'
+            + '<button type="button" class="btn btn-primary" data-action="share" data-id="' + esc(receipt.id) + '">Envoyer la quittance</button>'
+            + '<button type="button" class="btn" data-action="open" data-id="' + esc(receipt.id) + '">Ouvrir le PDF</button>'
+            + '<button type="button" class="btn" data-action="download" data-id="' + esc(receipt.id) + '">Télécharger le PDF</button>'
+            + '<button type="button" class="btn" data-action="eml" data-id="' + esc(receipt.id) + '">Email prêt à envoyer (.eml)</button>'
+            + '<button type="button" class="btn btn-ghost" data-action="close-modal">Fermer</button></div>'
+        );
+    }
+
+    function openQueue(ids, title) {
+        queue.ids = ids;
+        queue.title = title;
+        renderQueue();
+    }
+
+    function queueReceipts() {
+        return (queue.ids || []).map(function (id) { return Core.receiptById(state, id); }).filter(Boolean);
+    }
+
+    function renderQueue() {
+        var receipts = queueReceipts();
+        if (!receipts.length) {
+            closeModal();
+            return;
+        }
+        var pending = receipts.filter(function (r) { return !r.sentAt; });
+        var total = receipts.reduce(function (s, r) { return s + Q.total(r); }, 0);
+        openModal(
+            '<span class="chip">' + plural(receipts.length, 'quittance', 'quittances') + ' · ' + esc(Q.formatEuro(total)) + '</span>'
+            + '<h3 style="margin-top:10px">' + esc(queue.title) + '</h3>'
+            + '<p class="muted small">' + queueHint() + '</p>'
+            + '<div class="queue">' + receipts.map(queueRow).join('') + '</div>'
+            + '<div class="result-actions">'
+            + (pending.length
+                ? '<button type="button" class="btn btn-primary" data-action="queue-next">Envoyer la suivante · ' + pending.length + ' restante(s)</button>'
+                : '<p class="muted small">Toutes les quittances sont envoyées.</p>')
+            + '<button type="button" class="btn" data-action="queue-merged">Tout en un seul PDF (' + receipts.length + ' page(s))</button>'
+            + '<button type="button" class="btn btn-ghost" data-action="close-modal">Fermer</button>'
+            + '</div>'
+        );
+    }
+
     function queueRow(r) {
         return '<div class="queue-row' + (r.sentAt ? ' queue-row--done' : '') + '">'
             + '<div class="queue-row__main"><strong>' + esc(Q.fullName(r.tenant)) + '</strong>'
@@ -534,7 +563,7 @@
             + (r.sentAt ? '' : '<button type="button" class="link small" data-action="mark-sent" data-id="' + esc(r.id) + '">marquer envoyée</button>')
             + '</div>'
             + (r.sentAt
-                ? '<span class="badge badge--ok">Envoyée</span>'
+                ? '<span class="chip chip--ok">Envoyée</span>'
                 : '<button type="button" class="btn btn-small btn-primary" data-action="share" data-id="' + esc(r.id) + '">Envoyer</button>')
             + '<button type="button" class="btn btn-small" data-action="open" data-id="' + esc(r.id) + '">PDF</button>'
             + '</div>';
@@ -543,15 +572,16 @@
     function renderTenants() {
         var list = $('[data-tenant-list]');
         if (!state.tenants.length) {
-            list.innerHTML = '<div class="card empty"><p>Aucun locataire.</p><p class="muted small">Ajoute un locataire avec son email, l\'adresse du bien loué, le loyer et les charges.</p></div>';
+            list.innerHTML = '<div class="card empty"><p>Aucun locataire</p><p class="muted small">Ajoute un locataire avec son email, l\'adresse du bien loué, le loyer et les charges.</p></div>';
             return;
         }
         list.innerHTML = state.tenants.map(function (t) {
             return '<div class="card">'
                 + '<div class="list-item"><div class="list-item__main"><h3>' + esc(Q.fullName(t)) + '</h3>'
                 + '<div class="item-meta">' + esc(t.email || 'Pas d\'email') + '\n' + esc(t.propertyAddress) + '</div></div>'
-                + '<div class="list-item__amount">' + esc(Q.formatEuro(t.rent + t.charges)) + '</div></div>'
-                + '<p class="muted small">Loyer ' + esc(Q.formatEuro(t.rent)) + ' + charges ' + esc(Q.formatEuro(t.charges)) + '</p>'
+                + '<div class="list-item__amount">' + esc(Q.formatEuro(Q.total(t))) + '</div></div>'
+                + '<div class="status-line"><span class="chip chip--muted">Loyer ' + esc(Q.formatEuro(t.rent)) + ' + charges ' + esc(Q.formatEuro(t.charges)) + '</span>'
+                + (t.paymentDay ? '<span class="chip chip--muted">Paie le ' + esc(t.paymentDay) + '</span>' : '') + '</div>'
                 + '<div class="item-actions">'
                 + '<button type="button" class="btn btn-small" data-action="edit-tenant" data-id="' + esc(t.id) + '">Modifier</button>'
                 + '<button type="button" class="btn btn-small btn-danger" data-action="delete-tenant" data-id="' + esc(t.id) + '">Supprimer</button>'
@@ -560,7 +590,7 @@
     }
 
     function openTenantForm(tenant) {
-        var t = tenant || { id: '', civility: 'M.', firstName: '', lastName: '', email: '', propertyAddress: '', rent: '', charges: '' };
+        var t = tenant || { id: '', civility: 'M.', firstName: '', lastName: '', email: '', propertyAddress: '', rent: '', charges: '', paymentDay: null };
         openModal(
             '<h3>' + (tenant ? 'Modifier le locataire' : 'Nouveau locataire') + '</h3>'
             + '<form data-form="tenant" novalidate>'
@@ -573,8 +603,10 @@
             + '<label>Adresse du bien loué (une ligne par élément)<textarea name="propertyAddress" rows="3" placeholder="Appartement 1, 2e étage&#10;2 place de l&#39;Exemple&#10;00000 Villexemple">' + esc(t.propertyAddress) + '</textarea></label>'
             + '<div class="row2"><label>Loyer hors charges (€)<input type="number" name="rent" inputmode="decimal" step="0.01" min="0" value="' + esc(t.rent) + '"></label>'
             + '<label>Charges (€)<input type="number" name="charges" inputmode="decimal" step="0.01" min="0" value="' + esc(t.charges) + '"></label></div>'
+            + '<label>Jour de paiement habituel (optionnel)<input type="number" name="paymentDay" inputmode="numeric" min="1" max="31" placeholder="ex. 5" value="' + esc(t.paymentDay || '') + '"></label>'
+            + '<p class="muted small">Pré-remplit la date de paiement chaque mois ; sinon la date du jour est utilisée.</p>'
             + '<div class="result-actions"><button type="submit" class="btn btn-primary">Enregistrer</button>'
-            + '<button type="button" class="btn" data-action="close-modal">Annuler</button></div>'
+            + '<button type="button" class="btn btn-ghost" data-action="close-modal">Annuler</button></div>'
             + '</form>'
         );
         $('[data-form="tenant"] [name="civility"]').value = t.civility;
@@ -582,35 +614,24 @@
 
     function saveTenantForm(form) {
         var f = form.elements;
-        var tenant = {
-            id: f.id.value || uid(),
+        var res = Core.validateTenant({
+            id: f.id.value,
             civility: f.civility.value,
-            firstName: f.firstName.value.trim(),
-            lastName: f.lastName.value.trim(),
-            email: f.email.value.trim(),
-            propertyAddress: lines(f.propertyAddress.value).join('\n'),
-            rent: round2(f.rent.value),
-            charges: round2(f.charges.value)
-        };
-        if (!tenant.lastName) {
-            toast('Le nom du locataire est obligatoire');
+            firstName: f.firstName.value,
+            lastName: f.lastName.value,
+            email: f.email.value,
+            propertyAddress: f.propertyAddress.value,
+            rent: f.rent.value,
+            charges: f.charges.value,
+            paymentDay: f.paymentDay.value
+        });
+        if (res.error) {
+            toast(res.error);
             return;
         }
-        if (!tenant.propertyAddress) {
-            toast('L\'adresse du bien loué est obligatoire');
-            return;
-        }
-        if (tenant.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tenant.email)) {
-            toast('Email invalide');
-            return;
-        }
-        if (!(Number(f.rent.value) >= 0) || !(Number(f.charges.value) >= 0)) {
-            toast('Montants invalides');
-            return;
-        }
-        var idx = state.tenants.findIndex(function (t) { return t.id === tenant.id; });
-        if (idx >= 0) state.tenants[idx] = tenant;
-        else state.tenants.push(tenant);
+        var idx = state.tenants.findIndex(function (t) { return t.id === res.tenant.id; });
+        if (idx >= 0) state.tenants[idx] = res.tenant;
+        else state.tenants.push(res.tenant);
         save();
         closeModal();
         renderTenants();
@@ -618,7 +639,7 @@
     }
 
     function deleteTenant(id) {
-        var t = tenantById(id);
+        var t = Core.tenantById(state, id);
         if (!t) return;
         if (!window.confirm('Supprimer ' + Q.fullName(t) + ' ? Les quittances déjà générées restent dans l\'historique.')) return;
         state.tenants = state.tenants.filter(function (x) { return x.id !== id; });
@@ -633,17 +654,17 @@
 
     function sentStatus(r) {
         if (r.sentAt) {
-            return '<span class="badge badge--ok">Envoyée le ' + esc(Q.formatDateShort(r.sentAt.slice(0, 10))) + '</span>'
-                + '<button type="button" class="link" data-action="mark-unsent" data-id="' + esc(r.id) + '">marquer non envoyée</button>';
+            return '<span class="chip chip--ok">Envoyée le ' + esc(Q.formatDateShort(r.sentAt.slice(0, 10))) + '</span>'
+                + '<button type="button" class="link small" data-action="mark-unsent" data-id="' + esc(r.id) + '">marquer non envoyée</button>';
         }
-        return (r.sentAt === null ? '<span class="badge badge--warn">Non envoyée</span>' : '')
-            + '<button type="button" class="link" data-action="mark-sent" data-id="' + esc(r.id) + '">marquer envoyée</button>';
+        return (r.sentAt === null ? '<span class="chip chip--warn">Non envoyée</span>' : '')
+            + '<button type="button" class="link small" data-action="mark-sent" data-id="' + esc(r.id) + '">marquer envoyée</button>';
     }
 
     function renderHistory() {
         var pending = unsentReceipts();
         $('[data-history-queue]').innerHTML = pending.length
-            ? '<button type="button" class="btn btn-primary btn-block history-queue" data-action="history-queue">Envoyer les ' + pending.length + ' quittance(s) non envoyée(s)</button>'
+            ? '<button type="button" class="btn btn-primary btn-block history-queue" data-action="history-queue">Envoyer les ' + plural(pending.length, 'quittance non envoyée', 'quittances non envoyées') + '</button>'
             : '';
 
         var filter = $('[data-history-filter]');
@@ -662,14 +683,14 @@
         var receipts = state.receipts.slice().sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; })
             .filter(function (r) { return !filter.value || r.tenantId === filter.value; });
         if (!receipts.length) {
-            list.innerHTML = '<div class="card empty"><p>Aucune quittance générée pour le moment.</p></div>';
+            list.innerHTML = '<div class="card empty"><p>Aucune quittance</p><p class="muted small">Les quittances générées apparaîtront ici.</p></div>';
             return;
         }
         list.innerHTML = receipts.map(function (r) {
             return '<div class="card">'
-                + '<span class="badge">N° ' + esc(r.number) + '</span>'
-                + '<div class="list-item"><div class="list-item__main"><h3>' + esc(Q.fullName(r.tenant)) + '</h3>'
-                + '<div class="item-meta">' + esc(Q.periodLabel(r.periodStart, r.periodEnd)) + '\n' + esc(firstLine(r.tenant.propertyAddress))
+                + '<span class="chip">N° ' + esc(r.number) + '</span>'
+                + '<div class="list-item" style="margin-top:8px"><div class="list-item__main"><h3>' + esc(Q.fullName(r.tenant)) + '</h3>'
+                + '<div class="item-meta">' + esc(Q.periodLabel(r.periodStart, r.periodEnd)) + '\n' + esc(Core.firstLine(r.tenant.propertyAddress))
                 + '\nPayée le ' + esc(Q.formatDateShort(r.paymentDate)) + ' · établie le ' + esc(Q.formatDateShort(r.issueDate)) + '</div></div>'
                 + '<div class="list-item__amount">' + esc(Q.formatEuro(Q.total(r))) + '</div></div>'
                 + '<div class="status-line">' + sentStatus(r) + '</div>'
@@ -686,7 +707,7 @@
     $('[data-history-filter]').addEventListener('change', renderHistory);
 
     function deleteReceipt(id) {
-        var r = receiptById(id);
+        var r = Core.receiptById(state, id);
         if (!r) return;
         if (!window.confirm('Supprimer la quittance n° ' + r.number + ' de l\'historique ?')) return;
         state.receipts = state.receipts.filter(function (x) { return x.id !== id; });
@@ -706,7 +727,9 @@
         ef.elements.body.value = state.email.body;
         renderSignatureCurrent();
         setupPad();
-        $('[data-app-version]').textContent = APP_VERSION;
+        renderReminder();
+        renderBackupStatus();
+        $('[data-app-version]').textContent = APP_VERSION + (native ? ' · Android ' + Native.version() : '');
         updateStorageInfo();
         renderAndroidCard();
         if (window.matchMedia('(display-mode: standalone)').matches) $('[data-install-hint]').hidden = true;
@@ -717,12 +740,69 @@
         $('[data-android-card]').hidden = !(native || isAndroid);
         $('[data-android-link]').hidden = !!native;
         if (native) {
-            $('[data-android-text]').textContent = 'Application Android ' + native.version() + ' : « Envoyer » ouvre Gmail avec le destinataire, l\'objet, le message et le PDF déjà en place.';
+            $('[data-android-text]').textContent = 'Application Android : « Envoyer » ouvre Gmail avec le destinataire, l\'objet, le message et le PDF déjà en place.';
             $('[data-install-hint]').hidden = true;
             $('[data-action="install"]').hidden = true;
         } else if (isAndroid) {
-            $('[data-android-text]').textContent = 'Avec l\'application Android, « Envoyer » ouvre Gmail avec le destinataire, l\'objet, le message et le PDF déjà en place : plus rien à coller. Après le téléchargement, ouvre le fichier et autorise l\'installation depuis Chrome (une seule fois). Les données ne passent pas toutes seules d\'une version à l\'autre : exporte une sauvegarde ici, puis importe-la dans l\'application.';
+            $('[data-android-text]').textContent = 'Avec l\'application Android, « Envoyer » ouvre Gmail avec le destinataire, l\'objet, le message et le PDF déjà en place : plus rien à coller. Elle sauvegarde aussi tes données automatiquement et te rappelle chaque mois. Après le téléchargement, ouvre le fichier et autorise l\'installation depuis Chrome (une seule fois). Les données ne passent pas toutes seules d\'une version à l\'autre : exporte une sauvegarde ici, puis importe-la dans l\'application.';
         }
+    }
+
+    function formatDateTime(ms) {
+        var d = new Date(Number(ms));
+        if (!ms || isNaN(d.getTime())) return '';
+        var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+        return Q.formatDateLong(d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())) + ' à ' + d.getHours() + ' h' + (d.getMinutes() ? pad(d.getMinutes()) : '');
+    }
+
+    function renderReminder() {
+        $('[data-reminder-section]').hidden = !native;
+        if (!native) return;
+        var r = state.reminder;
+        $('[data-reminder-enabled]').checked = !!r.enabled;
+        $('[data-reminder-day]').value = r.day;
+        $('[data-reminder-hour]').value = r.hour;
+        $('[data-reminder-day]').disabled = !r.enabled;
+        $('[data-reminder-hour]').disabled = !r.enabled;
+        var st = Native.reminderStatus() || {};
+        var status = $('[data-reminder-status]');
+        var permBtn = $('[data-action="notif-settings"]');
+        permBtn.hidden = true;
+        if (!r.enabled) {
+            status.textContent = 'Aucun rappel. Active-le pour recevoir une notification le jour choisi, sauf si les quittances du mois sont déjà toutes envoyées.';
+        } else if (st.permission === false) {
+            status.textContent = 'Les notifications sont désactivées pour l\'application : le rappel ne pourra pas s\'afficher.';
+            permBtn.hidden = false;
+        } else {
+            status.textContent = (st.next ? 'Prochain rappel : ' + formatDateTime(st.next) + '. ' : 'Rappel programmé. ') + 'Pas de notification si les quittances du mois sont déjà toutes envoyées.';
+        }
+    }
+
+    function applyReminder() {
+        var r = state.reminder;
+        r.enabled = $('[data-reminder-enabled]').checked;
+        r.day = Math.min(31, Math.max(1, Math.floor(Number($('[data-reminder-day]').value) || 10)));
+        r.hour = Math.min(23, Math.max(0, Math.floor(Number($('[data-reminder-hour]').value) || 0)));
+        save();
+        var res = Native.setReminder(r.enabled, r.day, r.hour);
+        renderReminder();
+        if (res === 'permission') toast('Autorise les notifications pour recevoir le rappel');
+        else if (res === 'scheduled') toast('Rappel programmé');
+        else if (res === 'disabled') toast('Rappel désactivé');
+    }
+
+    $('[data-reminder-enabled]').addEventListener('change', applyReminder);
+    $('[data-reminder-day]').addEventListener('change', applyReminder);
+    $('[data-reminder-hour]').addEventListener('change', applyReminder);
+
+    function renderBackupStatus() {
+        var el = $('[data-backup-status]');
+        if (!el) return;
+        el.hidden = !native;
+        if (!native) return;
+        $('[data-data-hint]').textContent = 'Toutes les données (locataires, bailleur, signature, historique, modèle d\'email) sont stockées uniquement sur ce téléphone.';
+        el.textContent = 'Sauvegarde automatique dans Documents/Quittances/quittances-sauvegarde.json après chaque modification'
+            + (lastBackupAt ? ' · dernière à ' + lastBackupAt.getHours() + ':' + (lastBackupAt.getMinutes() < 10 ? '0' : '') + lastBackupAt.getMinutes() : '') + '.';
     }
 
     $('[data-form="landlord"]').addEventListener('input', function (e) {
@@ -743,7 +823,7 @@
         var el = $('[data-storage-info]');
         if (!el) return;
         var bytes = (localStorage.getItem(STORAGE_KEY) || '').length * 2;
-        el.textContent = state.receipts.length + ' quittance(s), ' + state.tenants.length + ' locataire(s), ' + Math.max(1, Math.round(bytes / 1024)) + ' Ko';
+        el.textContent = plural(state.receipts.length, 'quittance', 'quittances') + ', ' + plural(state.tenants.length, 'locataire', 'locataires') + ', ' + Math.max(1, Math.round(bytes / 1024)) + ' Ko';
     }
 
     var pad = { canvas: $('[data-signature-pad]'), ctx: null, strokes: [], current: null, dpr: 1 };
@@ -920,7 +1000,7 @@
     }
 
     function storeSignature(dataUrl) {
-        var id = uid();
+        var id = Core.uid();
         state.signatures[id] = dataUrl;
         state.currentSignatureId = id;
         pruneSignatures();
@@ -930,14 +1010,14 @@
     }
 
     function renderSignatureCurrent() {
-        var sig = currentSignature();
+        var sig = Core.currentSignature(state);
         var box = $('[data-signature-current]');
         box.hidden = !sig;
         if (sig) $('[data-signature-img]').src = sig;
     }
 
     function deleteSignature() {
-        if (!currentSignature()) return;
+        if (!Core.currentSignature(state)) return;
         if (!window.confirm('Supprimer la signature en place ? Les prochaines quittances seront générées sans signature tant qu\'une nouvelle n\'est pas enregistrée.')) return;
         state.currentSignatureId = null;
         pruneSignatures();
@@ -947,39 +1027,27 @@
     }
 
     function exportBackup() {
-        var payload = { app: 'quittance-loyer', version: 1, exportedAt: new Date().toISOString(), data: state };
-        var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        var blob = new Blob([JSON.stringify(Core.backupPayload(state), null, 2)], { type: 'application/json' });
         downloadBlob(blob, 'quittances-sauvegarde-' + Q.todayISO() + '.json');
-        toast('Sauvegarde enregistrée dans les téléchargements');
-    }
-
-    function parseBackup(text) {
-        var obj;
-        try {
-            obj = JSON.parse(text);
-        } catch (e) {
-            return null;
-        }
-        var data = obj && obj.app === 'quittance-loyer' ? obj.data : obj;
-        if (!data || typeof data !== 'object' || !Array.isArray(data.tenants) || !Array.isArray(data.receipts)) return null;
-        return hydrate(data);
+        if (!native) toast('Sauvegarde enregistrée dans les téléchargements');
     }
 
     function importBackup(file) {
         var reader = new FileReader();
         reader.onload = function () {
-            var data = parseBackup(reader.result);
+            var data = Core.parseBackup(reader.result);
             if (!data) {
                 toast('Fichier de sauvegarde invalide');
                 return;
             }
             var msg = 'Remplacer toutes les données actuelles par cette sauvegarde ?\n'
-                + data.tenants.length + ' locataire(s), ' + data.receipts.length + ' quittance(s)'
+                + plural(data.tenants.length, 'locataire', 'locataires') + ', ' + plural(data.receipts.length, 'quittance', 'quittances')
                 + (data.currentSignatureId && data.signatures[data.currentSignatureId] ? ', signature incluse' : ', sans signature') + '.';
             if (!window.confirm(msg)) return;
             state = data;
             save();
             clearPad();
+            if (native) Native.setReminder(state.reminder.enabled, state.reminder.day, state.reminder.hour);
             render();
             toast('Sauvegarde importée');
         };
@@ -991,7 +1059,7 @@
 
     function wipeAll() {
         if (!window.confirm('Supprimer TOUTES les données de l\'application (locataires, bailleur, signature, historique) ? Exporte une sauvegarde avant si besoin.')) return;
-        state = defaultState();
+        state = Core.defaultState();
         try {
             localStorage.removeItem(STORAGE_KEY);
         } catch (e) {
@@ -1001,6 +1069,7 @@
         render();
         renderHeader();
         updateStorageInfo();
+        scheduleBackup();
         toast('Toutes les données ont été effacées');
     }
 
@@ -1012,24 +1081,8 @@
         input.value = '';
     });
 
-    function receiptData(r) {
-        return {
-            number: r.number,
-            issueDate: r.issueDate,
-            periodStart: r.periodStart,
-            periodEnd: r.periodEnd,
-            paymentDate: r.paymentDate,
-            signaturePlace: r.signaturePlace,
-            landlord: r.landlord,
-            tenant: r.tenant,
-            rent: r.rent,
-            charges: r.charges,
-            signatureDataUrl: (r.signatureId && state.signatures[r.signatureId]) || null
-        };
-    }
-
     function makePdf(r) {
-        var data = receiptData(r);
+        var data = Core.receiptData(state, r);
         var doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
         Q.buildReceipt(doc, data);
         return { doc: doc, blob: doc.output('blob'), name: Q.fileName(data) };
@@ -1040,7 +1093,7 @@
         var doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
         receipts.forEach(function (r, i) {
             if (i) doc.addPage();
-            Q.buildReceipt(doc, receiptData(r));
+            Q.buildReceipt(doc, Core.receiptData(state, r));
         });
         var months = {};
         receipts.forEach(function (r) { months[r.periodStart.slice(0, 7)] = true; });
@@ -1049,63 +1102,16 @@
         return { blob: doc.output('blob'), name: 'quittances-loyer-' + label + '.pdf' };
     }
 
-    function b64utf8(str) {
-        var bytes = new TextEncoder().encode(str);
-        var bin = '';
-        for (var i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
-        return btoa(bin);
-    }
-
-    function wrap76(b64) {
-        return b64.replace(/.{76}/g, '$&\r\n');
-    }
-
-    function mimeHeader(text) {
-        return /^[\x20-\x7e]*$/.test(text) ? text : '=?UTF-8?B?' + b64utf8(text) + '?=';
-    }
-
-    function mailbox(person) {
-        if (!person || !person.email) return '';
-        var name = Q.fullName(person);
-        return name ? mimeHeader(name) + ' <' + person.email + '>' : person.email;
-    }
-
     function makeEml(r) {
         var pdf = makePdf(r);
-        var mail = renderEmail(r);
-        var boundary = '----=_quittance_' + uid();
-        var out = ['X-Unsent: 1'];
-        var from = mailbox(state.landlord);
-        var to = mailbox(r.tenant);
-        if (from) out.push('From: ' + from);
-        if (to) out.push('To: ' + to);
-        out.push(
-            'Subject: ' + mimeHeader(mail.subject),
-            'Date: ' + new Date().toUTCString(),
-            'MIME-Version: 1.0',
-            'Content-Type: multipart/mixed; boundary="' + boundary + '"',
-            '',
-            '--' + boundary,
-            'Content-Type: text/plain; charset=utf-8',
-            'Content-Transfer-Encoding: base64',
-            '',
-            wrap76(b64utf8(mail.body)),
-            '--' + boundary,
-            'Content-Type: application/pdf; name="' + pdf.name + '"',
-            'Content-Disposition: attachment; filename="' + pdf.name + '"',
-            'Content-Transfer-Encoding: base64',
-            '',
-            wrap76(pdf.doc.output('datauristring').split(',')[1]),
-            '--' + boundary + '--',
-            ''
-        );
-        return { blob: new Blob([out.join('\r\n')], { type: 'message/rfc822' }), name: pdf.name.replace(/\.pdf$/, '.eml') };
+        var text = Core.rawMessage(state, r, { name: pdf.name, base64: pdf.doc.output('datauristring').split(',')[1] }, { unsent: true });
+        return { blob: new Blob([text], { type: 'message/rfc822' }), name: pdf.name.replace(/\.pdf$/, '.eml') };
     }
 
     function downloadEml(r) {
         var eml = makeEml(r);
         downloadBlob(eml.blob, eml.name);
-        toast('Email .eml téléchargé : ouvre-le dans ton client mail, destinataire, objet, message et PDF sont déjà remplis');
+        if (!native) toast('Email .eml téléchargé : ouvre-le dans ton client mail, destinataire, objet, message et PDF sont déjà remplis');
     }
 
     function markSent(r, sent, via) {
@@ -1117,44 +1123,14 @@
 
     function refreshAfterSend() {
         if (queue.ids) renderQueue();
-        else if (resultId && receiptById(resultId)) openResult(receiptById(resultId));
+        else if (resultId && Core.receiptById(state, resultId)) openResult(Core.receiptById(state, resultId));
         if (currentView === 'history') renderHistory();
-    }
-
-    function renderEmail(r) {
-        var vars = {
-            locataire: Q.fullName(r.tenant),
-            bailleur: Q.fullName(r.landlord),
-            periode: Q.isFullMonth(r.periodStart, r.periodEnd)
-                ? Q.monthLabel(r.periodStart)
-                : 'du ' + Q.formatDateLong(r.periodStart) + ' au ' + Q.formatDateLong(r.periodEnd),
-            debut: Q.formatDateLong(r.periodStart),
-            fin: Q.formatDateLong(r.periodEnd),
-            adresse: oneLine(r.tenant.propertyAddress),
-            montant: Q.formatEuro(Q.total(r)),
-            numero: r.number
-        };
-        function fill(t) {
-            return String(t || '').replace(/\{(\w+)\}/g, function (m, k) {
-                return Object.prototype.hasOwnProperty.call(vars, k) ? vars[k] : m;
-            });
-        }
-        return { subject: fill(state.email.subject), body: fill(state.email.body) };
-    }
-
-    function blobToBase64(blob) {
-        return new Promise(function (resolve, reject) {
-            var reader = new FileReader();
-            reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
-            reader.onerror = function () { reject(reader.error); };
-            reader.readAsDataURL(blob);
-        });
+        if (currentView === 'new') renderHero();
     }
 
     function downloadBlob(blob, name) {
         if (native) {
-            blobToBase64(blob).then(function (b64) {
-                var res = native.saveFile(name, blob.type || 'application/octet-stream', b64);
+            Native.saveFile(name, blob.type || 'application/octet-stream', blob).then(function (res) {
                 toast(res === 'ok' ? 'Enregistré dans Téléchargements : ' + name : 'Enregistrement impossible');
             });
             return;
@@ -1174,8 +1150,8 @@
     function openPdf(r) {
         var pdf = makePdf(r);
         if (native) {
-            blobToBase64(pdf.blob).then(function (b64) {
-                if (native.openFile(pdf.name, 'application/pdf', b64) !== 'ok') {
+            Native.openFile(pdf.name, 'application/pdf', pdf.blob).then(function (res) {
+                if (res !== 'ok') {
                     downloadBlob(pdf.blob, pdf.name);
                     toast('Aucune application pour ouvrir les PDF : fichier enregistré dans Téléchargements');
                 }
@@ -1195,10 +1171,9 @@
 
     function shareReceipt(r) {
         var pdf = makePdf(r);
-        var mail = renderEmail(r);
+        var mail = Core.renderEmail(state, r);
         if (native) {
-            blobToBase64(pdf.blob).then(function (b64) {
-                var res = native.sendEmail(r.tenant.email || '', mail.subject, mail.body, pdf.name, b64);
+            Native.sendEmail(r.tenant.email || '', mail.subject, mail.body, pdf.name, pdf.blob).then(function (res) {
                 if (res === 'gmail' || res === 'chooser') {
                     markSent(r, true, 'android');
                     toast(res === 'gmail' ? 'Gmail ouvert : vérifie et appuie sur Envoyer' : 'Choisis ton application mail : tout est déjà rempli');
@@ -1244,6 +1219,7 @@
     window.addEventListener('beforeinstallprompt', function (e) {
         e.preventDefault();
         installEvent = e;
+        if (native) return;
         $('[data-action="install"]').hidden = false;
         $('[data-install-hint]').hidden = true;
     });
@@ -1266,6 +1242,7 @@
     document.addEventListener('click', function (e) {
         var nav = e.target.closest('[data-nav], [data-nav-to]');
         if (nav) {
+            if (!$('[data-modal]').hidden) closeModal();
             showView(nav.getAttribute('data-nav') || nav.getAttribute('data-nav-to'));
             return;
         }
@@ -1278,11 +1255,14 @@
         if (!btn) return;
         var action = btn.getAttribute('data-action');
         var id = btn.getAttribute('data-id');
-        var receipt = id ? receiptById(id) : null;
+        var receipt = id ? Core.receiptById(state, id) : null;
         switch (action) {
             case 'close-modal': closeModal(); break;
+            case 'month-go': monthGenerateAndSend(); break;
+            case 'month-review': monthReview(); break;
+            case 'month-send-rest': monthSendRest(); break;
             case 'add-tenant': openTenantForm(null); break;
-            case 'edit-tenant': openTenantForm(tenantById(id)); break;
+            case 'edit-tenant': openTenantForm(Core.tenantById(state, id)); break;
             case 'delete-tenant': deleteTenant(id); break;
             case 'delete-receipt': deleteReceipt(id); break;
             case 'share': if (receipt) shareReceipt(receipt); break;
@@ -1300,7 +1280,7 @@
                 var merged = makeMergedPdf(queueReceipts());
                 if (merged) {
                     downloadBlob(merged.blob, merged.name);
-                    toast('PDF groupé téléchargé');
+                    if (!native) toast('PDF groupé téléchargé');
                 }
                 break;
             }
@@ -1310,8 +1290,9 @@
             case 'signature-delete': deleteSignature(); break;
             case 'backup-export': exportBackup(); break;
             case 'wipe-all': wipeAll(); break;
+            case 'notif-settings': Native.openNotificationSettings(); break;
             case 'email-reset':
-                state.email = { subject: DEFAULT_EMAIL.subject, body: DEFAULT_EMAIL.body };
+                state.email = { subject: Core.DEFAULT_EMAIL.subject, body: Core.DEFAULT_EMAIL.body };
                 save();
                 renderSettings();
                 toast('Modèle d\'email rétabli');
@@ -1347,10 +1328,42 @@
                 return true;
             }
             return false;
+        },
+        onReminderResult: function (granted) {
+            if (!granted) {
+                state.reminder.enabled = false;
+                save();
+                toast('Notifications refusées : le rappel mensuel est désactivé');
+            } else {
+                toast('Rappel mensuel programmé');
+            }
+            if (currentView === 'settings') renderReminder();
         }
     };
+
+    function initReminder() {
+        if (!native) return;
+        var inited = null;
+        try {
+            inited = localStorage.getItem(REMINDER_INIT_KEY);
+        } catch (e) {
+            inited = null;
+        }
+        if (!inited) {
+            try {
+                localStorage.setItem(REMINDER_INIT_KEY, '1');
+            } catch (e) {
+                noop();
+            }
+            Native.setReminder(state.reminder.enabled, state.reminder.day, state.reminder.hour);
+        } else if (state.reminder.enabled) {
+            Native.setReminder(true, state.reminder.day, state.reminder.hour);
+        }
+        scheduleBackup();
+    }
 
     initNewForm();
     renderHeader();
     showView('new');
+    initReminder();
 })();
