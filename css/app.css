@@ -37,6 +37,7 @@
     --ring: 0 0 0 3px rgba(31, 95, 139, 0.22);
     --radius: 16px;
     --radius-sm: 12px;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
     color-scheme: light dark;
 }
 
@@ -91,14 +92,14 @@ body {
     background: var(--bg);
     color: var(--text);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    font-size: 16px;
+    font-size: 17px;
     line-height: 1.45;
     -webkit-text-size-adjust: 100%;
     -webkit-font-smoothing: antialiased;
 }
 
 body {
-    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
     min-height: 100vh;
 }
 
@@ -124,13 +125,13 @@ body {
 
 .app-header h1 {
     margin: 0;
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 700;
     letter-spacing: -0.01em;
 }
 
 .app-header__sub {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
@@ -143,8 +144,12 @@ main {
     margin: 0 auto;
 }
 
+[data-view] {
+    animation: view-in 0.24s var(--ease);
+}
+
 h2 {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -158,7 +163,7 @@ h2:first-child {
 
 h3 {
     margin: 0 0 4px;
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 700;
 }
 
@@ -171,7 +176,7 @@ p {
 }
 
 .small {
-    font-size: 13px;
+    font-size: 14px;
 }
 
 .card {
@@ -193,13 +198,13 @@ p {
 }
 
 .empty p:first-child {
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 600;
 }
 
 label {
     display: block;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--muted);
     margin-bottom: 12px;
@@ -213,7 +218,7 @@ label > textarea {
     margin-top: 6px;
     padding: 11px 13px;
     font: inherit;
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 400;
     color: var(--text);
     background: var(--input-bg);
@@ -250,10 +255,10 @@ label > textarea:focus {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    min-height: 44px;
+    min-height: 46px;
     padding: 10px 16px;
     font: inherit;
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
     color: var(--accent);
     background: var(--accent-soft);
@@ -262,11 +267,11 @@ label > textarea:focus {
     cursor: pointer;
     text-decoration: none;
     -webkit-tap-highlight-color: transparent;
-    transition: transform 0.08s ease, background 0.15s ease, opacity 0.15s ease;
+    transition: transform 0.12s var(--ease), background 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease;
 }
 
 .btn:active {
-    transform: scale(0.98);
+    transform: scale(0.97);
 }
 
 .btn:focus-visible,
@@ -303,9 +308,9 @@ label > textarea:focus {
 }
 
 .btn-small {
-    min-height: 36px;
-    padding: 6px 12px;
-    font-size: 14px;
+    min-height: 38px;
+    padding: 6px 13px;
+    font-size: 15px;
     border-radius: 10px;
 }
 
@@ -327,7 +332,7 @@ label > textarea:focus {
 
 .btn-file {
     margin-bottom: 0;
-    font-size: 15px;
+    font-size: 16px;
     color: var(--accent);
 }
 
@@ -344,7 +349,7 @@ label > textarea:focus {
 }
 
 .link.small {
-    font-size: 13px;
+    font-size: 14px;
 }
 
 .hero {
@@ -356,6 +361,7 @@ label > textarea:focus {
     padding: 20px;
     margin-bottom: 16px;
     box-shadow: var(--shadow-2);
+    animation: fade-up 0.3s var(--ease);
 }
 
 .hero::after {
@@ -380,7 +386,7 @@ label > textarea:focus {
 
 .hero__eyebrow {
     display: block;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -389,7 +395,7 @@ label > textarea:focus {
 
 .hero__title {
     margin: 2px 0 6px;
-    font-size: 26px;
+    font-size: 28px;
     font-weight: 700;
     letter-spacing: -0.01em;
     text-transform: none;
@@ -398,13 +404,13 @@ label > textarea:focus {
 
 .hero__lead {
     margin: 0;
-    font-size: 15px;
+    font-size: 16px;
     opacity: 0.95;
 }
 
 .hero__note {
     margin: 6px 0 0;
-    font-size: 13px;
+    font-size: 14px;
     opacity: 0.85;
 }
 
@@ -438,9 +444,9 @@ label > textarea:focus {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 3px 10px;
+    padding: 3px 11px;
     border-radius: 999px;
-    font-size: 12.5px;
+    font-size: 13.5px;
     font-weight: 600;
     line-height: 1.4;
     background: var(--accent-soft);
@@ -476,9 +482,9 @@ label > textarea:focus {
 }
 
 .segmented button {
-    min-height: 40px;
+    min-height: 42px;
     font: inherit;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--muted);
     background: none;
@@ -486,12 +492,17 @@ label > textarea:focus {
     border-radius: 10px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: background 0.2s ease, color 0.2s ease;
 }
 
 .segmented button[aria-pressed="true"] {
     color: var(--accent-strong);
     background: var(--accent-soft);
+}
+
+[data-form="new"],
+[data-form="batch"] {
+    animation: view-in 0.22s var(--ease);
 }
 
 .pick {
@@ -500,7 +511,7 @@ label > textarea:focus {
     background: var(--card-2);
     margin-bottom: 8px;
     overflow: hidden;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition: border-color 0.18s ease, background 0.18s ease;
 }
 
 .pick.is-on {
@@ -514,7 +525,7 @@ label > textarea:focus {
     gap: 12px;
     padding: 12px 14px;
     margin: 0;
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 400;
     color: var(--text);
     cursor: pointer;
@@ -556,17 +567,18 @@ label > textarea:focus {
     gap: 10px;
     margin: 0;
     padding: 8px 14px 10px 48px;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--muted);
     border-top: 1px dashed var(--border);
+    animation: fade-in 0.2s ease;
 }
 
 .pick__date > input {
     width: auto;
-    min-height: 38px;
+    min-height: 40px;
     margin: 0;
     padding: 6px 10px;
-    font-size: 14px;
+    font-size: 15px;
 }
 
 .pick:not(.is-on) .pick__date {
@@ -587,12 +599,12 @@ label > textarea:focus {
 .summary div {
     display: flex;
     flex-direction: column;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--muted);
 }
 
 .summary strong {
-    font-size: 18px;
+    font-size: 20px;
     color: var(--accent-strong);
 }
 
@@ -602,7 +614,7 @@ label > textarea:focus {
     color: var(--warn);
     padding: 10px 12px;
     border-radius: var(--radius-sm);
-    font-size: 14px;
+    font-size: 15px;
     margin-bottom: 12px;
 }
 
@@ -631,7 +643,7 @@ label > textarea:focus {
 
 .item-meta {
     color: var(--muted);
-    font-size: 14px;
+    font-size: 15px;
     white-space: pre-line;
 }
 
@@ -648,7 +660,7 @@ label > textarea:focus {
     align-items: center;
     gap: 8px;
     margin-top: 8px;
-    font-size: 13px;
+    font-size: 14px;
 }
 
 .history-queue {
@@ -688,7 +700,7 @@ label > textarea:focus {
     justify-content: space-between;
     gap: 12px;
     margin: 0 0 12px;
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 500;
     color: var(--text);
 }
@@ -697,14 +709,14 @@ label > textarea:focus {
     -webkit-appearance: none;
     appearance: none;
     flex: none;
-    width: 48px;
-    height: 28px;
+    width: 50px;
+    height: 30px;
     margin: 0;
     border-radius: 999px;
     background: var(--border);
     position: relative;
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition: background 0.22s ease;
 }
 
 .switch::after {
@@ -712,12 +724,12 @@ label > textarea:focus {
     position: absolute;
     top: 3px;
     left: 3px;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
     background: #fff;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-    transition: transform 0.2s ease;
+    transition: transform 0.22s var(--ease);
 }
 
 .switch:checked {
@@ -750,7 +762,7 @@ label > textarea:focus {
     gap: 2px;
     padding: 4px 0 2px;
     font: inherit;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--muted);
     background: none;
@@ -758,16 +770,17 @@ label > textarea:focus {
     border-radius: 12px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+    transition: color 0.2s ease;
 }
 
 .tabbar svg {
     box-sizing: content-box;
-    width: 22px;
-    height: 22px;
+    width: 23px;
+    height: 23px;
     padding: 4px 16px;
     border-radius: 999px;
     fill: currentColor;
-    transition: background 0.15s ease;
+    transition: background 0.22s ease, transform 0.22s var(--ease);
 }
 
 .tabbar button[aria-current="page"] {
@@ -777,6 +790,7 @@ label > textarea:focus {
 
 .tabbar button[aria-current="page"] svg {
     background: var(--accent-soft);
+    transform: translateY(-1px);
 }
 
 .modal {
@@ -792,6 +806,7 @@ label > textarea:focus {
     position: absolute;
     inset: 0;
     background: var(--backdrop);
+    animation: fade-in 0.22s ease-out;
 }
 
 .modal__card {
@@ -804,7 +819,7 @@ label > textarea:focus {
     border-radius: 24px 24px 0 0;
     padding: 12px 16px calc(18px + env(safe-area-inset-bottom));
     box-shadow: var(--shadow-2);
-    animation: modal-in 0.2s ease-out;
+    animation: modal-in 0.28s var(--ease);
 }
 
 .modal__card::before {
@@ -815,6 +830,14 @@ label > textarea:focus {
     margin: 0 auto 14px;
     border-radius: 999px;
     background: var(--border);
+}
+
+.modal--closing .modal__backdrop {
+    animation: fade-out 0.2s ease-in forwards;
+}
+
+.modal--closing .modal__card {
+    animation: modal-out 0.2s ease-in forwards;
 }
 
 @media (min-width: 640px) {
@@ -834,7 +857,7 @@ label > textarea:focus {
 
 @keyframes modal-in {
     from {
-        transform: translateY(24px);
+        transform: translateY(40px);
         opacity: 0;
     }
 
@@ -844,8 +867,67 @@ label > textarea:focus {
     }
 }
 
+@keyframes modal-out {
+    to {
+        transform: translateY(40px);
+        opacity: 0;
+    }
+}
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes fade-out {
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes fade-up {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes view-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translate(-50%, 12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate(-50%, 0);
+    }
+}
+
 .result-total {
-    font-size: 30px;
+    font-size: 32px;
     font-weight: 800;
     letter-spacing: -0.02em;
     color: var(--accent-strong);
@@ -873,6 +955,7 @@ label > textarea:focus {
     border: 1px solid var(--border);
     border-radius: 14px;
     background: var(--card-2);
+    transition: background 0.25s ease;
 }
 
 .queue-row--done {
@@ -895,7 +978,7 @@ label > textarea:focus {
 .toast {
     position: fixed;
     left: 50%;
-    bottom: calc(96px + env(safe-area-inset-bottom));
+    bottom: calc(100px + env(safe-area-inset-bottom));
     transform: translateX(-50%);
     z-index: 30;
     max-width: calc(100% - 32px);
@@ -904,16 +987,17 @@ label > textarea:focus {
     gap: 14px;
     background: var(--toast-bg);
     color: var(--toast-text);
-    padding: 11px 16px;
+    padding: 12px 16px;
     border-radius: 14px;
-    font-size: 14px;
+    font-size: 15px;
     box-shadow: var(--shadow-2);
+    animation: toast-in 0.24s var(--ease);
 }
 
 .toast button {
     flex: none;
     font: inherit;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
     color: var(--toast-action);
     background: none;
