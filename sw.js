@@ -1,7 +1,8 @@
-var CACHE = 'quittance-loyer-v5';
+var CACHE = 'quittance-loyer-v6';
 var ASSETS = [
     './',
     './index.html',
+    './css/playground.css',
     './css/app.css',
     './js/pdf.js',
     './js/core.js',
