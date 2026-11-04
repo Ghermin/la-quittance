@@ -84,7 +84,7 @@ cd android
 .\gradlew.bat assembleRelease    # APK signé si android\signing.properties est présent
 ```
 
-Le build release est minifié (R8, réduction des ressources) : l'APK pèse environ 1 Mo. `android/signing.properties` (ignoré par git) contient `QUITTANCE_KEYSTORE`, `QUITTANCE_KEYSTORE_PASSWORD`, `QUITTANCE_KEY_ALIAS`, `QUITTANCE_KEY_PASSWORD`. Le keystore de release doit être conservé précieusement : sans lui, impossible de publier une mise à jour installable par-dessus l'existant. Les icônes se régénèrent avec `powershell -ExecutionPolicy Bypass -File tools/make-android-icons.ps1`.
+Le build release est minifié (R8, réduction des ressources) : l'APK pèse environ 1 Mo. `android/signing.properties` (ignoré par git) contient `QUITTANCE_KEYSTORE`, `QUITTANCE_KEYSTORE_PASSWORD`, `QUITTANCE_KEY_ALIAS`, `QUITTANCE_KEY_PASSWORD`. Le keystore de release doit être conservé précieusement : sans lui, impossible de publier une mise à jour installable par-dessus l'existant. Les icônes (web et Android) sont générées depuis le playground : `brand/icons/la-quittance.svg`, puis `node build.js la-quittance` dans `bored-dev-playground/brand`.
 
 ### Publication automatique (optionnelle)
 
@@ -111,7 +111,7 @@ git push origin v1.1.0
 
   Le PDF est écrit dans `tools/out/`.
 
-- Régénération des icônes et de la signature d'exemple (Windows PowerShell) :
+- Régénération de la signature d'exemple (Windows PowerShell) ; les icônes viennent du playground (`brand/`) :
 
   ```powershell
   powershell -ExecutionPolicy Bypass -File tools/make-assets.ps1
