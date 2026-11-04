@@ -167,6 +167,14 @@ main {
     margin: 0 auto;
 }
 
+/* Lien discret vers le playground, sous le contenu de chaque onglet */
+.app-foot {
+    max-width: 640px;
+    margin: 8px auto 0;
+    padding: 0 16px;
+    text-align: center;
+}
+
 [data-view] {
     animation: view-in 0.24s var(--ease);
 }
