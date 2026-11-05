@@ -59,8 +59,8 @@ android {
         applicationId = "fr.ghermin.quittance"
         minSdk = 29
         targetSdk = 35
-        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 5
-        versionName = (project.findProperty("versionName") as String?) ?: "1.2.3"
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 6
+        versionName = (project.findProperty("versionName") as String?) ?: "1.2.4"
     }
 
     signingConfigs {

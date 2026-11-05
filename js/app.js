@@ -6,7 +6,7 @@
     var Native = window.QuittanceNative;
     var jsPDF = window.jspdf && window.jspdf.jsPDF;
     var native = Native.available;
-    var APP_VERSION = '1.2.3';
+    var APP_VERSION = '1.2.4';
     var STORAGE_KEY = 'quittance-loyer.v1';
     var REMINDER_INIT_KEY = 'quittance-loyer.reminder-init';
     var SITE_URL = 'https://ghermin.github.io/la-quittance/';
