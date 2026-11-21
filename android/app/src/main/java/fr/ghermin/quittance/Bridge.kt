@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
@@ -54,6 +55,10 @@ class Bridge(private val activity: MainActivity) {
         val file = File(dir, "la-quittance.apk")
         return try {
             file.writeBytes(bytes)
+            if (!sameAppAndKey(file)) {
+                file.delete()
+                return "error"
+            }
             val uri = FileProvider.getUriForFile(activity, activity.packageName + ".files", file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
@@ -201,6 +206,20 @@ class Bridge(private val activity: MainActivity) {
             // réglages indisponibles sur cet appareil
         }
     }
+
+    /** L'APK reçu de la page doit être cette appli, signée avec la même clé : jamais une autre appli. */
+    private fun sameAppAndKey(apk: File): Boolean =
+        try {
+            val pm = activity.packageManager
+            val flags = PackageManager.GET_SIGNING_CERTIFICATES
+            val archive = pm.getPackageArchiveInfo(apk.path, flags)
+            val installed = pm.getPackageInfo(activity.packageName, flags)
+            val theirs = archive?.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
+            val ours = installed.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
+            archive != null && archive.packageName == activity.packageName && !theirs.isNullOrEmpty() && theirs == ours
+        } catch (e: Exception) {
+            false
+        }
 
     private fun decode(base64: String): ByteArray? =
         try {

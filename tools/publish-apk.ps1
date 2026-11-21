@@ -7,7 +7,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $android = Join-Path $root 'android'
 $dist = Join-Path $root 'dist'
 $versionFile = Join-Path $dist 'version.json'
-$tools = 'C:\Users\detri\android-tools'
+$tools = Join-Path $env:USERPROFILE 'android-tools'
 
 if (-not $env:JAVA_HOME -and (Test-Path "$tools\jdk-17")) { $env:JAVA_HOME = "$tools\jdk-17" }
 if (-not $env:ANDROID_HOME -and (Test-Path "$tools\sdk")) { $env:ANDROID_HOME = "$tools\sdk" }
