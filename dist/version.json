@@ -1,1 +1,1 @@
-{"version":"1.2.4","code":6,"apk":"la-quittance.apk","size":1285399,"date":"2026-11-05","notes":"lien vers le bored dev playground"}
+{"version":"1.2.5","code":7,"apk":"la-quittance.apk","size":1287019,"date":"2026-11-22","notes":"sécurité : les mises à jour ne s'installent que si l'APK est signé avec la clé de La Quittance"}
