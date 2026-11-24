@@ -2,6 +2,9 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8">
+    <!-- CSP : seuls nos fichiers s'exécutent ; le script inline du bandeau est autorisé par son empreinte
+         (LF tel que servi par GitHub Pages, CRLF pour un APK construit sous Windows). Le modifier = recalculer ces empreintes. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mykhBiCv2QkKoanrkjyf+YGLDIUvUeNieLjbWo1sjJY=' 'sha256-07APKRpSt8heoDvoKM6yk1YH20cUVva5BCSp5828Ze0='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://ghermin.github.io; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#151c25" media="(prefers-color-scheme: dark)">
