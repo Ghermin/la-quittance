@@ -229,7 +229,8 @@ class Bridge(private val activity: MainActivity) {
         }
 
     private fun safeName(fileName: String): String =
-        fileName.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "fichier" }
+        // Sans « / » ni point en tête : le nom reste un fichier du dossier de partage (jamais « .. »).
+        fileName.replace(Regex("[^A-Za-z0-9._-]"), "_").trimStart('.').ifBlank { "fichier" }
 
     private fun cacheUri(fileName: String, base64: String): Uri? {
         val bytes = decode(base64) ?: return null
